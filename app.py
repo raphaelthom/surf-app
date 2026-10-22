@@ -28,9 +28,17 @@ st.title("🏄 Surf Forecast")
 spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()))
 coords = SPOTS[spot_name]
 lat, lon = coords
-data = get_marine_data(lat, lon)   # catch what the function returns
-df = pd.DataFrame(data)           # turn the dict of lists into a table
+data = get_marine_data(lat, lon)   # catch what the function returns; returns a dict of lists
+df = pd.DataFrame(data)           # turn the dict of lists into a table; made a table with one column per key
 df["time"] = pd.to_datetime(df["time"]) # converts text to date objects
 df = df.set_index("time") # makes that column the row labels instead of 0, 1, 2…
-st.dataframe(df)                   # show the table
+
 st.write(spot_name, coords)
+st.subheader("Wave height (m)")
+st.line_chart(df["wave_height"])
+st.subheader("Swell Wave height (m)")
+st.line_chart(df["swell_wave_height"])
+st.subheader("swell wave period (in seconds))")
+st.line_chart(df["swell_wave_period"])
+st.dataframe(df)                   # show the table
+
