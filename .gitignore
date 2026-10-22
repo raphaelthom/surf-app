@@ -1,0 +1,5 @@
+# Virtual environment: big, machine-specific, and can be rebuilt from requirements.txt
+.venv/
+
+# Python's compiled cache files
+__pycache__/
