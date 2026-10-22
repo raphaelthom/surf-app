@@ -30,7 +30,8 @@ def get_forecast(url, lat, lon, variables, extra_params=None):
     if extra_params:
         params.update(extra_params)  # add the extra settings, e.g. wind unit
 
-    response = requests.get(url, params=params)
+    response = requests.get(url, params=params, timeout=15)  # give up after 15 s
+    response.raise_for_status()  # turn HTTP errors (404, 500, ...) into exceptions
     hourly = response.json()["hourly"]
 
     df = pd.DataFrame(hourly)                # dict of lists -> table
@@ -47,16 +48,24 @@ spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()))
 lat, lon = SPOTS[spot_name]
 st.write(f"{spot_name}: latitude {lat}, longitude {lon}")
 
-marine_df = get_forecast(
-    MARINE_URL, lat, lon,
-    "wave_height,swell_wave_height,swell_wave_period",
-)
-# "kn" = knots, the unit surfers usually use for wind
-wind_df = get_forecast(
-    WEATHER_URL, lat, lon,
-    "wind_speed_10m,wind_direction_10m",
-    {"wind_speed_unit": "kn"},
-)
+# try/except: Python first tries the code under "try". If it raises one of
+# the listed errors (no internet, API down, unexpected reply), it jumps to
+# "except" instead of crashing the whole app with a red traceback.
+try:
+    marine_df = get_forecast(
+        MARINE_URL, lat, lon,
+        "wave_height,swell_wave_height,swell_wave_period",
+    )
+    # "kn" = knots, the unit surfers usually use for wind
+    wind_df = get_forecast(
+        WEATHER_URL, lat, lon,
+        "wind_speed_10m,wind_direction_10m",
+        {"wind_speed_unit": "kn"},
+    )
+except (requests.RequestException, KeyError) as error:
+    # "as error" keeps the exception, so we can show what went wrong
+    st.error(f"Couldn't load the forecast. Check your internet connection and try again. (Details: {error!r})")
+    st.stop()  # stop here, so the charts below don't run without data
 
 st.subheader("Wave height (m)")
 st.line_chart(marine_df["wave_height"])
