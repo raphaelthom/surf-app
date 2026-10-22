@@ -1,5 +1,6 @@
 import streamlit as st
 import requests 
+import pandas as pd
 
 SPOTS = {
     "Lisbon": (38.65, -9.40),
@@ -27,5 +28,9 @@ st.title("🏄 Surf Forecast")
 spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()))
 coords = SPOTS[spot_name]
 lat, lon = coords
-st.write(get_marine_data(lat, lon))
+data = get_marine_data(lat, lon)   # catch what the function returns
+df = pd.DataFrame(data)           # turn the dict of lists into a table
+df["time"] = pd.to_datetime(df["time"]) # converts text to date objects
+df = df.set_index("time") # makes that column the row labels instead of 0, 1, 2…
+st.dataframe(df)                   # show the table
 st.write(spot_name, coords)
