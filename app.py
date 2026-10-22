@@ -13,6 +13,7 @@ SPOTS = {
 # st.cache_data remembers the result for each input (lat, lon), so picking
 # the same spot again doesn't call the API again. ttl=3600: forget after 1 hour.
 @st.cache_data(ttl=3600)
+
 def get_marine_data(lat, lon):
     response = requests.get("https://marine-api.open-meteo.com/v1/marine", 
                     params={
@@ -25,6 +26,7 @@ def get_marine_data(lat, lon):
     return marine_data["hourly"]
 
 @st.cache_data(ttl=3600)  # same caching as above
+
 def get_wind_data(lat, lon):
     response = requests.get("https://api.open-meteo.com/v1/forecast", 
                     params={
@@ -45,6 +47,7 @@ st.title("🏄 Surf Forecast")
 spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()))
 coords = SPOTS[spot_name]
 lat, lon = coords
+
 # try/except: Python tries the code under "try". If the network or API fails,
 # it jumps to "except" and shows a message instead of crashing with a red traceback.
 try:
@@ -52,6 +55,7 @@ try:
 except (requests.RequestException, KeyError) as error:
     st.error(f"Couldn't load the wave data. (Details: {error!r})")
     st.stop()  # stop the script here, since everything below needs this data
+
 marine_df = pd.DataFrame(marine_data)           # turn the dict of lists into a table; made a table with one column per key
 marine_df["time"] = pd.to_datetime(marine_df["time"]) # converts text to date objects
 marine_df = marine_df.set_index("time") # makes that column the row labels instead of 0, 1, 2…
@@ -71,6 +75,7 @@ try:
 except (requests.RequestException, KeyError) as error:
     st.error(f"Couldn't load the wind data. (Details: {error!r})")
     st.stop()
+    
 wind_df = pd.DataFrame(wind_data)           # turn the dict of lists into a table; made a table with one column per key
 wind_df["time"] = pd.to_datetime(wind_df["time"]) # converts text to date objects
 wind_df = wind_df.set_index("time") # makes that column the row labels instead of 0, 1, 2…
