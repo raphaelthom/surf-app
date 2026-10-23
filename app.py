@@ -63,9 +63,9 @@ marine_df = marine_df.set_index("time") # makes that column the row labels inste
 st.write(spot_name, coords)
 st.subheader("Wave height (m)")
 st.line_chart(marine_df["wave_height"])
-st.subheader("Swell Wave height (m)")
+st.subheader("Swell wave height (m)")
 st.line_chart(marine_df["swell_wave_height"])
-st.subheader("swell wave period (in seconds)")
+st.subheader("Swell wave period (seconds)")
 st.line_chart(marine_df["swell_wave_period"])
 st.dataframe(marine_df)                   # show the table
 
@@ -82,6 +82,5 @@ wind_df = wind_df.set_index("time") # makes that column the row labels instead o
 
 st.subheader("Wind speed (knots)")
 st.line_chart(wind_df["wind_speed_10m"])
-st.subheader("wind direction")
+st.subheader("Wind direction (degrees)")
 st.line_chart(wind_df["wind_direction_10m"])
-
