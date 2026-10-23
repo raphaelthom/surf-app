@@ -10,6 +10,9 @@ SPOTS = {
     "Taghazout": (30.55, -9.80)
 }
 
+DIRECTIONS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+
+
 # st.cache_data remembers the result for each input (lat, lon), so picking
 # the same spot again doesn't call the API again. ttl=3600: forget after 1 hour.
 @st.cache_data(ttl=3600)
@@ -38,6 +41,11 @@ def get_wind_data(lat, lon):
     response.raise_for_status()
     wind_data = response.json()
     return wind_data["hourly"]
+
+def degrees_to_compass(degrees):
+    index = round(degrees / 45) % 8 # degrees / 45 says how many 45° steps fit, and round(...) picks the nearest one. % 8 (modulo) is the remainder after dividing by 8. It makes 360° wrap around to 0, which is "N". For example, 350° / 45 ≈ 7.8 → rounds to 8 → 8 % 8 = 0 → "N".
+    label = DIRECTIONS[index] # looks up the label by position. Positions start at 0.
+    return label
 
 # Streamlit re-runs this whole file from top to bottom
 # every time the user interacts with the page.
@@ -84,3 +92,7 @@ st.subheader("Wind speed (knots)")
 st.line_chart(wind_df["wind_speed_10m"])
 st.subheader("Wind direction (degrees)")
 st.line_chart(wind_df["wind_direction_10m"])
+
+table = wind_df.iloc[::3]
+table["compass"] = table["wind_direction_10m"].apply(degrees_to_compass)
+st.dataframe(table)
