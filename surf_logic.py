@@ -203,3 +203,18 @@ def find_best_time(daylight_hours, now):
         day_label = "tomorrow"
     level, start, end = find_best_window(day_hours)
     return day_label, level, start, end
+
+# One entry per day for the "week at a glance" strip: the best daylight stretch of each day.
+# For today only the hours still ahead count; a day with no hours left is skipped.
+# Returns a list of (date, rating, start, end), earliest day first.
+def best_per_day(daylight_hours, now):
+    days = []
+    for date in sorted(set(daylight_hours.index.date)):   # set() removes duplicates: one entry per calendar date
+        day_hours = daylight_hours[daylight_hours.index.date == date]
+        if date == now.date():
+            day_hours = day_hours[day_hours.index >= now]
+        if day_hours.empty:
+            continue
+        level, start, end = find_best_window(day_hours)
+        days.append((date, level, start, end))
+    return days

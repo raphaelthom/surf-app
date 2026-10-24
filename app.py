@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go   # Plotly: interactive charts
 
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
-from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, next_turning_point,
+from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, best_per_day, next_turning_point,
                         wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS)
 
 SPOTS = {
@@ -286,6 +286,23 @@ with key3:
     st.caption(f"{current_wind_type.lower()}: {WIND_NOTES[current_wind_type]}")
 with key4:
     st.metric("Water temperature", f"{water_temp:.1f} °C", help="Tells you what to wear: a wetsuit is usually needed below about 22 °C.")
+
+# "This week at a glance": one coloured tile per day with that day's best rating and time window.
+# best_per_day returns a list of (date, rating, start, end); one column per day.
+st.subheader("This week at a glance")
+week = best_per_day(daylight_hours, now)
+for column, (date, level, start, end) in zip(st.columns(len(week)), week):
+    day_name = "Today" if date == now.date() else f"{date:%a %d}"
+    window = "–" if level == "Poor" else f"{start:%H:%M}–{end:%H:%M}"   # no window to show if even the best hours are poor
+    with column:
+        st.markdown(
+            f'<div style="background:{TILE_COLORS[level]}; color:white; padding:0.7rem 0.4rem; border-radius:10px; text-align:center; margin-bottom:0.6rem;">'
+            f'<div style="font-size:0.85rem; opacity:0.9;">{day_name}</div>'
+            f'<div style="font-size:1.2rem; font-weight:700;">{level}</div>'
+            f'<div style="font-size:0.8rem;">{window}</div>'
+            f'</div>',
+            unsafe_allow_html=True)
+st.caption("Each tile shows the best daylight stretch of that day. Further ahead, forecasts get less reliable.")
 
 # Secondary data hides in an expander until someone wants it
 with st.expander("More conditions: tide, wave power, wave direction"):

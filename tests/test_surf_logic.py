@@ -245,3 +245,23 @@ def test_rate_hours_with_a_spot_uses_the_spot_rules():
     wind = pd.DataFrame({"wind_speed_10m": [5, 5], "wind_direction_10m": [10, 10]}, index=idx)
     assert list(rate_hours(marine, wind, "Taghazout")["rating"]) == ["Good", "Okay"]
     assert list(rate_hours(marine, wind)["rating"]) == ["Good", "Good"]   # without a spot: only period and wind
+
+
+# ---------- best_per_day ----------
+from surf_logic import best_per_day
+
+def test_best_per_day_gives_one_entry_per_day_with_its_best_window():
+    hours = two_days(["Poor", "Okay", "Okay", "Poor"], ["Good", "Good", "Poor", "Poor"])
+    days = best_per_day(hours, pd.Timestamp("2026-10-24 00:00"))
+    assert [(d[1]) for d in days] == ["Okay", "Good"]
+    assert days[1][2] == pd.Timestamp("2026-10-25 06:00")
+
+def test_best_per_day_today_only_counts_hours_still_ahead():
+    hours = two_days(["Good", "Poor", "Poor", "Poor"], ["Okay", "Okay", "Okay", "Okay"])
+    days = best_per_day(hours, pd.Timestamp("2026-10-24 07:00"))   # the Good hour (06:00) is already over
+    assert days[0][1] == "Poor"
+
+def test_best_per_day_skips_a_day_with_no_hours_left():
+    hours = two_days(["Good", "Good", "Good", "Good"], ["Okay", "Okay", "Okay", "Okay"])
+    days = best_per_day(hours, pd.Timestamp("2026-10-24 23:00"))
+    assert len(days) == 1 and days[0][0] == pd.Timestamp("2026-10-25").date()
