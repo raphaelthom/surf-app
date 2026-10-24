@@ -124,3 +124,16 @@ st.line_chart(wind_df["wind_direction_10m"])
 table = wind_df.iloc[::3]
 table["compass"] = table["wind_direction_10m"].apply(degrees_to_compass)
 st.dataframe(table)
+
+# Daily summary: one row per day instead of 24 hourly rows.
+# groupby puts all rows with the same date into one group; .agg then
+# calculates the smallest (min), largest (max) and average (mean) value of each group.
+st.subheader("Daily summary")
+days = marine_df.index.date   # the calendar date of every hourly row
+daily_waves = marine_df.groupby(days)["wave_height"].agg(["min", "max", "mean"]).round(1)
+daily_wind = wind_df.groupby(days)["wind_speed_10m"].agg(["min", "max", "mean"]).round(1)
+
+st.write("Wave height (m)")
+st.dataframe(daily_waves)
+st.write("Wind speed (knots)")
+st.dataframe(daily_wind)
