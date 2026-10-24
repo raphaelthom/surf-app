@@ -103,6 +103,18 @@ spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()))
 coords = SPOTS[spot_name]
 lat, lon = coords
 
+# The sidebar is a panel on the left. Two sliders let you set what "Good" means to you;
+# "Okay" is derived from them: 2 s less swell period and 5 knots more wind are still okay.
+with st.sidebar:
+    st.header("Rating rules")
+    good_period = st.slider("Good: swell period at least (s)", 6, 16, 10)   # (label, min, max, start value)
+    good_wind = st.slider("Good: wind at most (knots)", 0, 25, 10)
+    st.caption(f"Okay: swell period at least {good_period - 2} s and wind up to {good_wind + 5} knots. "
+               "Everything else is Poor.")
+# A dictionary with the four limits. Writing **rules in a function call hands over every entry
+# as a separate argument, like good_period=..., good_wind=..., okay_period=..., okay_wind=...
+rules = dict(good_period=good_period, good_wind=good_wind, okay_period=good_period - 2, okay_wind=good_wind + 5)
+
 # ---------- 1. Load and prepare all the data ----------
 # The page needs every table before it can show anything,
 # so all loading happens first and the display comes afterwards.
@@ -138,7 +150,7 @@ current_period = marine_df.loc[now, "swell_wave_period"]   # .loc picks the row 
 current_wave = marine_df.loc[now, "wave_height"]
 current_wind = wind_df.loc[now, "wind_speed_10m"]
 current_direction = wind_df.loc[now, "wind_direction_10m"]
-rating, reason = rate_conditions(current_period, current_wind)  # unpack the two returned values
+rating, reason = rate_conditions(current_period, current_wind, **rules)  # unpack the two returned values
 
 # Wind table with a compass label, one row every 3 hours
 table = wind_df.iloc[::3]
@@ -153,7 +165,7 @@ daily_wind = wind_df.groupby(days)["wind_speed_10m"].agg(["min", "max", "mean"])
 
 # Rating for every single hour (rate_conditions returns (rating, reason), so [0] takes the rating)
 hours = pd.DataFrame({"period": marine_df["swell_wave_period"], "wind": wind_df["wind_speed_10m"]})
-hours["rating"] = [rate_conditions(p, w)[0] for p, w in zip(hours["period"], hours["wind"])]
+hours["rating"] = [rate_conditions(p, w, **rules)[0] for p, w in zip(hours["period"], hours["wind"])]
 daylight_hours = hours.between_time("06:00", "18:00")   # hours that start between 06:00 and 18:00 local time, so daylight until 19:00
 
 # Best time to surf: the hours still ahead today, or tomorrow if the daylight is over
@@ -216,9 +228,9 @@ tab_best, tab_waves, tab_wind, tab_tide, tab_daily = st.tabs(
 with tab_best:
     st.subheader("Surf quality by hour (daylight)")
     st.plotly_chart(make_quality_chart(daylight_hours, now), width="stretch")
-    st.caption("Good: swell period of 10 s or more and wind up to 10 kn. "
-               "Okay: period of 8 s or more and wind up to 15 kn. Poor: everything else. "
-               "The dashed line marks the current hour.")
+    st.caption(f"Good: swell period of {good_period} s or more and wind up to {good_wind} kn. "
+               f"Okay: period of {good_period - 2} s or more and wind up to {good_wind + 5} kn. Poor: everything else. "
+               "Change the limits in the sidebar. The dashed line marks the current hour.")
 
 with tab_waves:
     wave_col1, wave_col2, wave_col3 = st.columns(3)

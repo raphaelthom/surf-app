@@ -15,25 +15,27 @@ def degrees_to_compass(degrees):
 # Rates surf conditions as "Good", "Okay" or "Poor": long swell periods and light wind
 # (in knots) are better. Python checks the conditions top to bottom and uses the first true one.
 # Returns two values (a tuple): the rating and a short reason for it.
-def rate_conditions(swell_wave_period, wind_speed_10m):
-    if swell_wave_period >= 10 and wind_speed_10m <= 10:
+# The four limits can be changed (the sliders in the app do that). If you don't pass them,
+# the default values after the = signs are used, which are the original rules.
+def rate_conditions(swell_wave_period, wind_speed_10m, good_period=10, good_wind=10, okay_period=8, okay_wind=15):
+    if swell_wave_period >= good_period and wind_speed_10m <= good_wind:
         return "Good", "long swell period and light wind"
-    elif swell_wave_period >= 8 and wind_speed_10m <= 15:
-        # "Good" failed, so the period is under 10 s, the wind is over 10 kn, or both
-        if swell_wave_period < 10 and wind_speed_10m > 10:
+    elif swell_wave_period >= okay_period and wind_speed_10m <= okay_wind:
+        # "Good" failed, so the period is under the good limit, the wind is over it, or both
+        if swell_wave_period < good_period and wind_speed_10m > good_wind:
             return "Okay", "swell period is a bit short and wind is a bit strong"
-        elif swell_wave_period < 10:
-            return "Okay", "swell period is a bit short (under 10 s)"
+        elif swell_wave_period < good_period:
+            return "Okay", f"swell period is a bit short (under {good_period:g} s)"
         else:
-            return "Okay", "wind is a bit strong (over 10 knots)"
+            return "Okay", f"wind is a bit strong (over {good_wind:g} knots)"
     else:
-        # the "Okay" test failed too, so the period is under 8 s, the wind is over 15 kn, or both
-        if swell_wave_period < 8 and wind_speed_10m > 15:
+        # the "Okay" test failed too, so the period is under the okay limit, the wind is over it, or both
+        if swell_wave_period < okay_period and wind_speed_10m > okay_wind:
             return "Poor", "swell period is too short and wind is too strong"
-        elif swell_wave_period < 8:
-            return "Poor", "swell period is too short (under 8 s)"
+        elif swell_wave_period < okay_period:
+            return "Poor", f"swell period is too short (under {okay_period:g} s)"
         else:
-            return "Poor", "wind is too strong (over 15 knots)"
+            return "Poor", f"wind is too strong (over {okay_wind:g} knots)"
 
 # Finds the best stretch of hours in a table with one row per hour and a "rating" column.
 # Step 1: take the best rating that occurs at all ("Good" if there is any, else "Okay", else "Poor").

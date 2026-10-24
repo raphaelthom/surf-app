@@ -113,3 +113,20 @@ def test_next_turning_point_ignores_the_past():
 def test_next_turning_point_when_there_is_none():
     tide = tide_series([0, 1, 2, 3, 4])                  # keeps rising, no peak in sight
     assert next_turning_point(tide, pd.Timestamp("2026-10-24 00:00")) == (None, None)
+
+
+# ---------- rate_conditions with custom limits ----------
+def test_rate_conditions_defaults_are_the_original_rules():
+    # passing the default limits explicitly must give the same answers as passing none
+    for period, wind in [(12, 5), (9, 12), (6, 20), (10, 10), (8, 15)]:
+        assert rate_conditions(period, wind) == rate_conditions(period, wind, 10, 10, 8, 15)
+
+
+def test_rate_conditions_stricter_limits_downgrade_the_rating():
+    assert rate_conditions(11, 8)[0] == "Good"
+    assert rate_conditions(11, 8, good_period=12, good_wind=6, okay_period=10, okay_wind=11)[0] == "Okay"
+
+
+def test_rate_conditions_reason_uses_the_custom_limits():
+    reason = rate_conditions(12, 20, good_period=10, good_wind=10, okay_period=8, okay_wind=18)[1]
+    assert "18" in reason          # "wind is too strong (over 18 knots)"
