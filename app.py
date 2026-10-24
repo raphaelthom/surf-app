@@ -168,12 +168,25 @@ st.set_page_config(page_title="Surf Forecast", page_icon="🏄", layout="wide")
 
 st.title("🏄 Surf Forecast")
 
+# Remember the choices in the page address (e.g. ?spot=Lombok&level=Beginner), so a bookmark or a shared link
+# opens the same setup. Streamlit keeps each widget's value in st.session_state under its key.
+# On the first run of a visit that value is empty, so it is filled from the address if the address has a valid one.
+st.session_state.setdefault("level", "Intermediate")   # the default surf level
+choices = {   # key of the widget: its allowed values
+    "spot": list(SPOTS), "level": list(SKILL_LEVELS), "height": list(HEIGHT_FACTORS),
+    "wind": list(WIND_FACTORS), "temp": ["°C", "°F"],
+}
+for key, options in choices.items():
+    if st.query_params.get(key) in options and key not in st.session_state.get("restored", set()):
+        st.session_state[key] = st.query_params[key]
+st.session_state["restored"] = set(choices)   # only restore once per visit, so later clicks win
+
 # Two dropdowns side by side: [2, 1] makes the first column twice as wide as the second
 pick_col1, pick_col2 = st.columns([2, 1])
 with pick_col1:
-    spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()))
+    spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()), key="spot")
 with pick_col2:
-    skill = st.selectbox("Your surf level", list(SKILL_LEVELS.keys()), index=1)   # index=1 -> "Intermediate" is pre-selected
+    skill = st.selectbox("Your surf level", list(SKILL_LEVELS.keys()), key="level")
 too_small, too_big = SKILL_LEVELS[skill]   # the wave height range that is comfortable at your level
 coords = SPOTS[spot_name]
 lat, lon = coords
@@ -184,9 +197,9 @@ lat, lon = coords
 with st.sidebar:
     st.header("Units")
     # st.radio shows all options at once; horizontal=True puts them in one row
-    h_unit = st.radio("Wave height", list(HEIGHT_FACTORS), horizontal=True)
-    w_unit = st.radio("Wind speed", list(WIND_FACTORS), horizontal=True)
-    t_unit = st.radio("Temperature", ["°C", "°F"], horizontal=True)
+    h_unit = st.radio("Wave height", list(HEIGHT_FACTORS), horizontal=True, key="height")
+    w_unit = st.radio("Wind speed", list(WIND_FACTORS), horizontal=True, key="wind")
+    t_unit = st.radio("Temperature", ["°C", "°F"], horizontal=True, key="temp")
     with st.expander("Advanced: rating limits"):
         good_period = st.slider("Good: swell period at least (s)", 6, 16, 10)   # (label, min, max, start value)
         good_wind = st.slider("Good: wind at most (knots)", 0, 25, 10)   # the limits are always in knots
@@ -195,6 +208,10 @@ with st.sidebar:
 # A dictionary with the four limits. Writing **rules in a function call hands over every entry
 # as a separate argument, like good_period=..., good_wind=..., okay_period=..., okay_wind=...
 rules = dict(good_period=good_period, good_wind=good_wind, okay_period=good_period - 2, okay_wind=good_wind + 5)
+# Write the current choices into the page address (after all widgets exist, so these are the final values)
+st.query_params.update(spot=spot_name, level=skill, height=h_unit, wind=w_unit, temp=t_unit)
+st.sidebar.caption("Your choices are saved in the page address: bookmark or share the link to keep them.")
+
 h_factor = HEIGHT_FACTORS[h_unit]   # how many ft in one metre (or 1 for metres)
 w_factor = WIND_FACTORS[w_unit]     # how many km/h or mph in one knot (or 1 for knots)
 
