@@ -1,11 +1,13 @@
 import streamlit as st
 import requests 
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 import pandas as pd
 import plotly.graph_objects as go   # Plotly: interactive charts
 
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
 from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, best_per_day, next_turning_point, make_sun_times, daylight_only,
-                        HEIGHT_FACTORS, WIND_FACTORS, convert_temp, wind_text,
+                        HEIGHT_FACTORS, WIND_FACTORS, convert_temp, wind_text, week_score, best_day,
                         wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS)
 
 SPOTS = {
@@ -16,18 +18,24 @@ SPOTS = {
     "Taghazout": (30.55, -9.80)
 }
 
+# The free API sometimes stalls for a request. A session with a retry rule asks again (up to 2 more times,
+# with a short pause in between) instead of failing right away. If it still fails, the error is caught below.
+session = requests.Session()
+session.mount("https://", HTTPAdapter(max_retries=Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])))
+
 # st.cache_data remembers the result for each input (lat, lon), so picking
 # the same spot again doesn't call the API again. ttl=3600: forget after 1 hour.
 @st.cache_data(ttl=3600)
 
 def get_marine_data(lat, lon):
-    response = requests.get("https://marine-api.open-meteo.com/v1/marine", 
+    response = session.get("https://marine-api.open-meteo.com/v1/marine", 
                     params={
                     "latitude": lat, 
                     "longitude": lon, 
                     "hourly": "wave_height,swell_wave_height,swell_wave_period,sea_level_height_msl,sea_surface_temperature,wave_direction,swell_wave_direction", 
                     "timezone": "auto",   # times in the spot's local time instead of GMT
-                    "forecast_days": 7})
+                    "forecast_days": 7},
+                    timeout=(3, 5))   # give up connecting after 3 s and waiting for the answer after 5 s (then the session retries)
     response.raise_for_status()  # raises an error if the API replied with an error code
     marine_data = response.json()
     # return two values: the data and the spot's timezone name, e.g. "Europe/Lisbon"
@@ -36,14 +44,15 @@ def get_marine_data(lat, lon):
 @st.cache_data(ttl=3600)  # same caching as above
 
 def get_wind_data(lat, lon):
-    response = requests.get("https://api.open-meteo.com/v1/forecast", 
+    response = session.get("https://api.open-meteo.com/v1/forecast", 
                     params={
                     "latitude": lat, 
                     "longitude": lon, 
                     "hourly": "wind_speed_10m,wind_direction_10m",
                     "wind_speed_unit": "kn",   # knots instead of km/h
                     "timezone": "auto",        # local time, same as the marine data
-                    "forecast_days": 7})
+                    "forecast_days": 7},
+                    timeout=(3, 5))   # give up connecting after 3 s and waiting for the answer after 5 s (then the session retries)
     response.raise_for_status()
     wind_data = response.json()
     return wind_data["hourly"]
@@ -52,13 +61,14 @@ def get_wind_data(lat, lon):
 # Same caching as the other fetch functions.
 @st.cache_data(ttl=3600)
 def get_sun_data(lat, lon):
-    response = requests.get("https://api.open-meteo.com/v1/forecast",
+    response = session.get("https://api.open-meteo.com/v1/forecast",
                     params={
                     "latitude": lat,
                     "longitude": lon,
                     "daily": "sunrise,sunset",   # "daily" = one value per day instead of per hour
                     "timezone": "auto",
-                    "forecast_days": 7})
+                    "forecast_days": 7},
+                    timeout=(3, 5))   # give up connecting after 3 s and waiting for the answer after 5 s (then the session retries)
     response.raise_for_status()
     return response.json()["daily"]
 
@@ -131,6 +141,7 @@ def summarize_spot(spot, rules, skill, height_unit, wind_unit):
                                    spot, skill, wind_unit=wind_unit, **rules)
     daylight = daylight_only(rate_hours(marine, wind, spot, skill, **rules), make_sun_times(get_sun_data(lat, lon)))
     day_label, best_level, start, end = find_best_time(daylight, now)
+    top_date, top_level, _, _ = best_day(best_per_day(daylight, now))   # the best day of the coming week
 
     return {
         "Spot": spot,
@@ -140,7 +151,10 @@ def summarize_spot(spot, rules, skill, height_unit, wind_unit):
         "Wave height": f"{marine.loc[now, 'wave_height'] * HEIGHT_FACTORS[height_unit]:.1f} {height_unit}",
         "Swell": f"{period:.1f} s from {degrees_to_compass(marine.loc[now, 'swell_wave_direction'])}",
         "Wind": f"{wind_speed * WIND_FACTORS[wind_unit]:.0f} {wind_unit} {degrees_to_compass(wind.loc[now, 'wind_direction_10m'])}",
-        # these two are only used for sorting and are removed before the table is shown
+        "Best day": "–" if top_level == "Poor" else f"{top_date:%a %d} · {top_level}",
+        "Week score": round(week_score(daylight, now)),
+        # these are only used for sorting and are removed before the table is shown
+        "_week": week_score(daylight, now),
         "_rank": {"Good": 3, "Okay": 2, "Poor": 1}[rating],
         "_period": period,
     }
@@ -427,7 +441,7 @@ with tab_daily:
         st.dataframe(daily_wind)
 
 with tab_all:
-    st.subheader("Where is it good right now?")
+    st.subheader("Where is it good?")
     rows = []
     for spot in SPOTS:
         try:
@@ -435,11 +449,22 @@ with tab_all:
         except (requests.RequestException, KeyError):
             st.warning(f"No data for {spot} right now.")   # one failing spot shouldn't break the whole table
     if rows:
-        # best rating first; spots with the same rating are sorted by swell period, longest first
-        overview = pd.DataFrame(rows).sort_values(["_rank", "_period"], ascending=False)
-        st.dataframe(overview.drop(columns=["_rank", "_period"]), hide_index=True)
+        sort_by = st.radio("Rank spots by", ["This week", "Right now"], horizontal=True)
+        overview = pd.DataFrame(rows)
+        if sort_by == "This week":
+            # highest week score first; ties are decided by the swell period
+            overview = overview.sort_values(["_week", "_period"], ascending=False)
+        else:
+            # best rating right now first; spots with the same rating are sorted by swell period, longest first
+            overview = overview.sort_values(["_rank", "_period"], ascending=False)
+        winner = overview.iloc[0]   # the first row after sorting is the top spot
+        st.markdown(f"🏆 **{winner['Spot']}** is the best spot {'this week' if sort_by == 'This week' else 'right now'}.")
+        # column_config can change how a column looks: here the score becomes a small bar from 0 to 100
+        st.dataframe(overview.drop(columns=["_rank", "_period", "_week"]), hide_index=True,
+                     column_config={"Week score": st.column_config.ProgressColumn("Week score", min_value=0, max_value=100, format="%d")})
     st.caption("Uses the rating rules from the sidebar. Times are local to each spot; "
-               "\"Best time\" is the best daylight stretch still ahead today, or tomorrow once the day is over.")
+               "\"Best time\" is the best daylight stretch still ahead today, or tomorrow once the day is over. "
+               "\"Week score\" is the average rating of all daylight hours in the next 7 days: 0 means always poor, 100 always good.")
 
 # A plain-language guide for people who don't surf. st.markdown writes text with simple formatting:
 # **bold**, bullet lists with "-", and "###" for small headings.

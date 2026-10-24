@@ -301,3 +301,28 @@ def test_wind_text_converts_knots():
 def test_rate_conditions_reason_uses_the_chosen_wind_unit():
     reason = rate_conditions(11, 12, wind_unit="km/h")[1]   # a good period, so Okay only because of the wind
     assert "km/h" in reason and "knots" not in reason
+
+
+# ---------- ranking spots ----------
+from surf_logic import week_score, best_day
+
+def test_week_score_runs_from_0_to_100():
+    now = pd.Timestamp("2026-10-24 00:00")
+    assert week_score(two_days(["Poor"] * 4, ["Poor"] * 4), now) == 0
+    assert week_score(two_days(["Okay"] * 4, ["Okay"] * 4), now) == 50
+    assert week_score(two_days(["Good"] * 4, ["Good"] * 4), now) == 100
+    assert week_score(two_days(["Good"] * 4, ["Poor"] * 4), now) == 50
+
+def test_week_score_ignores_hours_in_the_past():
+    hours = two_days(["Good", "Good", "Poor", "Poor"], ["Poor"] * 4)
+    assert week_score(hours, pd.Timestamp("2026-10-24 08:00")) == 0   # both Good hours (06:00, 07:00) are over
+
+def test_week_score_with_nothing_ahead_is_zero():
+    assert week_score(two_days(["Good"] * 4, ["Good"] * 4), pd.Timestamp("2026-11-01")) == 0
+
+def test_best_day_prefers_rating_then_longer_window_then_earlier_day():
+    hours = two_days(["Okay", "Okay", "Okay", "Okay"], ["Good", "Poor", "Poor", "Poor"])
+    days = best_per_day(hours, pd.Timestamp("2026-10-24 00:00"))
+    assert best_day(days)[0] == pd.Timestamp("2026-10-25").date()   # a Good hour beats a longer Okay block
+    same = best_per_day(two_days(["Okay"] * 4, ["Okay"] * 4), pd.Timestamp("2026-10-24 00:00"))
+    assert best_day(same)[0] == pd.Timestamp("2026-10-24").date()   # a full tie goes to the earlier day

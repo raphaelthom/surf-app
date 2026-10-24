@@ -249,3 +249,20 @@ def daylight_only(hours, sun_times):
         middle = time + pd.Timedelta(minutes=30)
         keep.append(sunrise <= middle <= sunset)
     return hours[keep]   # a list of True/False picks the rows marked True
+
+# ---------- ranking spots ----------
+# Points per rating, used to turn a list of hourly ratings into one number
+SCORES = {"Good": 2, "Okay": 1, "Poor": 0}
+
+# How good is the coming week at a spot? A score from 0 to 100: the average rating of all
+# daylight hours still ahead (all Poor = 0, all Okay = 50, all Good = 100).
+def week_score(daylight_hours, now):
+    ahead = daylight_hours[daylight_hours.index >= now]
+    if ahead.empty:
+        return 0.0
+    return ahead["rating"].map(SCORES).mean() * 50   # .map swaps each rating for its points; the mean is between 0 and 2
+
+# The best day out of the list made by best_per_day: the best rating wins,
+# then the longer window, and on a tie the earlier day (max keeps the first of equals).
+def best_day(days):
+    return max(days, key=lambda day: (LEVELS.index(day[1]), day[3] - day[2]))
