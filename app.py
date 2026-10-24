@@ -5,6 +5,7 @@ import plotly.graph_objects as go   # Plotly: interactive charts
 
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
 from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, best_per_day, next_turning_point, make_sun_times, daylight_only,
+                        HEIGHT_FACTORS, WIND_FACTORS, convert_temp, wind_text,
                         wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS)
 
 SPOTS = {
@@ -78,28 +79,29 @@ def make_line_chart(series, now, unit):
 
 # Wind chart: speed as a line, plus an arrow every 3 hours showing where the wind blows TO.
 # The data gives the direction the wind comes FROM, so the arrow is turned by 180 degrees.
-def make_wind_chart(wind_df, now):
-    fig = make_line_chart(wind_df["wind_speed_10m"], now, "knots")
+# factor and unit convert the speed from knots to what the user picked (e.g. 1.852 and "km/h").
+def make_wind_chart(wind_df, now, factor, unit):
+    fig = make_line_chart(wind_df["wind_speed_10m"] * factor, now, unit)
     every_3h = wind_df.iloc[::3]
     fig.add_trace(go.Scatter(
-        x=every_3h.index, y=every_3h["wind_speed_10m"], mode="markers",
+        x=every_3h.index, y=every_3h["wind_speed_10m"] * factor, mode="markers",
         marker=dict(symbol="arrow", size=18, color="#d95f02",   # big and orange so the arrows stand out from the line
                     angle=(every_3h["wind_direction_10m"] + 180) % 360, angleref="up"),
         text=every_3h["wind_direction_10m"].apply(degrees_to_compass),
-        hovertemplate="%{x|%a %H:%M}<br>%{y:.0f} knots from %{text}<extra></extra>",
+        hovertemplate="%{x|%a %H:%M}<br>%{y:.0f} " + unit + " from %{text}<extra></extra>",
     ))
     return fig
 
 # One bar per daylight hour, coloured by rating. A higher bar means better conditions.
-def make_quality_chart(hours, now):
+def make_quality_chart(hours, now, wind_factor, wind_unit):
     heights = {"Poor": 1, "Okay": 2, "Good": 3}
     fig = go.Figure()
     for level, color in RATING_COLORS.items():
         part = hours[hours["rating"] == level]
         fig.add_trace(go.Bar(
             x=part.index, y=[heights[level]] * len(part), name=level, marker_color=color,
-            customdata=part[["period", "wind"]],
-            hovertemplate="%{x|%a %H:%M}<br>" + level + ": %{customdata[0]:.1f} s swell, %{customdata[1]:.0f} kn wind<extra></extra>",
+            customdata=part[["period", "wind"]] * [1, wind_factor],   # multiplies only the wind column
+            hovertemplate="%{x|%a %H:%M}<br>" + level + ": %{customdata[0]:.1f} s swell, %{customdata[1]:.0f} " + wind_unit + " wind<extra></extra>",
         ))
     fig.add_shape(type="line", x0=now, x1=now, y0=0, y1=1, yref="paper", line=dict(dash="dash", width=1))
     fig.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0), yaxis=dict(visible=False),
@@ -115,7 +117,7 @@ def to_table(hourly):
 
 # One row of the "All spots" table: loads a spot's data (cached, so spots that were loaded
 # before are instant) and picks out the current values, the rating and the best time.
-def summarize_spot(spot, rules, skill):
+def summarize_spot(spot, rules, skill, height_unit, wind_unit):
     lat, lon = SPOTS[spot]
     marine_data, timezone = get_marine_data(lat, lon)
     marine = to_table(marine_data)
@@ -126,7 +128,7 @@ def summarize_spot(spot, rules, skill):
     wind_speed = wind.loc[now, "wind_speed_10m"]
     rating, reason = rate_for_spot(period, wind_speed, wind.loc[now, "wind_direction_10m"],
                                    marine.loc[now, "swell_wave_direction"], marine.loc[now, "wave_height"],
-                                   spot, skill, **rules)
+                                   spot, skill, wind_unit=wind_unit, **rules)
     daylight = daylight_only(rate_hours(marine, wind, spot, skill, **rules), make_sun_times(get_sun_data(lat, lon)))
     day_label, best_level, start, end = find_best_time(daylight, now)
 
@@ -135,9 +137,9 @@ def summarize_spot(spot, rules, skill):
         "Local time": f"{now:%H:%M}",
         "Now": f"{RATING_ICONS[rating]} {rating}",
         "Best time": "–" if best_level == "Poor" else f"{day_label} {start:%H:%M}–{end:%H:%M}",
-        "Wave height": f"{marine.loc[now, 'wave_height']:.1f} m",
+        "Wave height": f"{marine.loc[now, 'wave_height'] * HEIGHT_FACTORS[height_unit]:.1f} {height_unit}",
         "Swell": f"{period:.1f} s from {degrees_to_compass(marine.loc[now, 'swell_wave_direction'])}",
-        "Wind": f"{wind_speed:.0f} kn {degrees_to_compass(wind.loc[now, 'wind_direction_10m'])}",
+        "Wind": f"{wind_speed * WIND_FACTORS[wind_unit]:.0f} {wind_unit} {degrees_to_compass(wind.loc[now, 'wind_direction_10m'])}",
         # these two are only used for sorting and are removed before the table is shown
         "_rank": {"Good": 3, "Okay": 2, "Poor": 1}[rating],
         "_period": period,
@@ -166,14 +168,21 @@ lat, lon = coords
 # "Okay" is derived from them: 2 s less swell period and 5 knots more wind are still okay.
 # They sit inside an expander because most people never need to change them.
 with st.sidebar:
+    st.header("Units")
+    # st.radio shows all options at once; horizontal=True puts them in one row
+    h_unit = st.radio("Wave height", list(HEIGHT_FACTORS), horizontal=True)
+    w_unit = st.radio("Wind speed", list(WIND_FACTORS), horizontal=True)
+    t_unit = st.radio("Temperature", ["°C", "°F"], horizontal=True)
     with st.expander("Advanced: rating limits"):
         good_period = st.slider("Good: swell period at least (s)", 6, 16, 10)   # (label, min, max, start value)
-        good_wind = st.slider("Good: wind at most (knots)", 0, 25, 10)
+        good_wind = st.slider("Good: wind at most (knots)", 0, 25, 10)   # the limits are always in knots
         st.caption(f"Okay: swell period at least {good_period - 2} s and wind up to {good_wind + 5} knots. "
                    "Everything else is Poor.")
 # A dictionary with the four limits. Writing **rules in a function call hands over every entry
 # as a separate argument, like good_period=..., good_wind=..., okay_period=..., okay_wind=...
 rules = dict(good_period=good_period, good_wind=good_wind, okay_period=good_period - 2, okay_wind=good_wind + 5)
+h_factor = HEIGHT_FACTORS[h_unit]   # how many ft in one metre (or 1 for metres)
+w_factor = WIND_FACTORS[w_unit]     # how many km/h or mph in one knot (or 1 for knots)
 
 # ---------- 1. Load and prepare all the data ----------
 # The page needs every table before it can show anything,
@@ -220,15 +229,19 @@ current_swell_direction = marine_df.loc[now, "swell_wave_direction"]   # directi
 current_wave_direction = marine_df.loc[now, "wave_direction"]
 # rate_for_spot uses period and wind plus the spot's rules (wind direction, swell window) and your level
 rating, reason = rate_for_spot(current_period, current_wind, current_direction, current_swell_direction,
-                               current_wave, spot_name, skill, **rules)   # unpack the two returned values
+                               current_wave, spot_name, skill, wind_unit=w_unit, **rules)   # unpack the two returned values
 
 # Wind table with a compass label, one row every 3 hours
 table = wind_df.iloc[::3]
 table["compass"] = table["wind_direction_10m"].apply(degrees_to_compass)
+table["wind_speed_10m"] = (table["wind_speed_10m"] * w_factor).round(1)   # show the speed in the chosen unit
+table = table.rename(columns={"wind_speed_10m": f"Wind speed ({w_unit})", "wind_direction_10m": "Direction (°)"})
 
 # Swell table with compass labels, one row every 3 hours
-swell_table = marine_df.iloc[::3][["wave_height", "swell_wave_height", "swell_wave_period"]].round(1)
-swell_table.columns = ["Wave height (m)", "Swell height (m)", "Swell period (s)"]   # readable column names
+swell_table = marine_df.iloc[::3][["wave_height", "swell_wave_height", "swell_wave_period"]].copy()
+swell_table[["wave_height", "swell_wave_height"]] *= h_factor   # heights in the chosen unit
+swell_table = swell_table.round(1)
+swell_table.columns = [f"Wave height ({h_unit})", f"Swell height ({h_unit})", "Swell period (s)"]   # readable column names
 swell_table["Swell from"] = marine_df.iloc[::3]["swell_wave_direction"].apply(degrees_to_compass)
 swell_table["Waves from"] = marine_df.iloc[::3]["wave_direction"].apply(degrees_to_compass)
 swell_table.index = swell_table.index.strftime("%a %d %b %H:%M")   # e.g. "Sat 24 Oct 15:00"
@@ -237,8 +250,8 @@ swell_table.index = swell_table.index.strftime("%a %d %b %H:%M")   # e.g. "Sat 2
 # groupby puts all rows with the same date into one group; .agg then
 # calculates the smallest (min), largest (max) and average (mean) value of each group.
 days = marine_df.index.date   # the calendar date of every hourly row
-daily_waves = marine_df.groupby(days)["wave_height"].agg(["min", "max", "mean"]).round(1)
-daily_wind = wind_df.groupby(days)["wind_speed_10m"].agg(["min", "max", "mean"]).round(1)
+daily_waves = (marine_df.groupby(days)["wave_height"].agg(["min", "max", "mean"]) * h_factor).round(1)
+daily_wind = (wind_df.groupby(days)["wind_speed_10m"].agg(["min", "max", "mean"]) * w_factor).round(1)
 
 # Rating for every single hour, then only the daylight hours
 hours = rate_hours(marine_df, wind_df, spot_name, skill, **rules)
@@ -296,18 +309,19 @@ else:
 
 key1, key2, key3, key4 = st.columns(4)
 with key1:
-    st.metric("Wave height", f"{current_wave:.1f} m", help="How tall the waves are. Bigger is not always better: it has to match your level.")
+    st.metric("Wave height", f"{current_wave * h_factor:.1f} {h_unit}", help="How tall the waves are. Bigger is not always better: it has to match your level.")
     st.caption(size_note)
 with key2:
     st.metric("Swell", f"{current_period:.1f} s {degrees_to_compass(current_swell_direction)}",
               help="Seconds between waves, and the direction they come from. A longer period means more powerful, better organised waves.")
     st.caption("direction fits this spot" if swell_ok else "direction is off for this spot")
 with key3:
-    st.metric("Wind", f"{current_wind:.0f} kn {degrees_to_compass(current_direction)}",
-              help="Wind speed in knots and where it blows from. Light wind, blowing from land to sea, is best.")
+    st.metric("Wind", f"{current_wind * w_factor:.0f} {w_unit} {degrees_to_compass(current_direction)}",
+              help="Wind speed and where it blows from. Light wind, blowing from land to sea, is best.")
     st.caption(f"{current_wind_type.lower()}: {WIND_NOTES[current_wind_type]}")
 with key4:
-    st.metric("Water temperature", f"{water_temp:.1f} °C", help="Tells you what to wear: a wetsuit is usually needed below about 22 °C.")
+    st.metric("Water temperature", f"{convert_temp(water_temp, t_unit):.1f} {t_unit}",
+              help=f"Tells you what to wear: a wetsuit is usually needed below about {convert_temp(22, t_unit):.0f} {t_unit}.")
 
 # "This week at a glance": one coloured tile per day with that day's best rating and time window.
 # best_per_day returns a list of (date, rating, start, end); one column per day.
@@ -330,7 +344,7 @@ st.caption("Each tile shows the best daylight stretch of that day. Further ahead
 with st.expander("More conditions: tide, wave power, wave direction"):
     more1, more2, more3, more4 = st.columns(4)
     with more1:
-        st.metric("Tide", f"{tide_now:+.1f} m", help="Sea level compared with the average. Plus = higher than average.")
+        st.metric("Tide", f"{tide_now * h_factor:+.1f} {h_unit}", help="Sea level compared with the average. Plus = higher than average.")
         if tide_kind:
             st.caption(f"{tide_trend}, next {tide_kind.lower()} tide at {tide_time:%H:%M}")
         else:
@@ -353,21 +367,21 @@ tab_best, tab_waves, tab_wind, tab_tide, tab_daily, tab_all, tab_guide = st.tabs
 # st.plotly_chart shows a Plotly figure; width="stretch" makes it fill the column.
 with tab_best:
     st.subheader("Surf quality by hour (daylight)")
-    st.plotly_chart(make_quality_chart(daylight_hours, now), width="stretch")
-    st.caption(f"Good: swell period of {good_period} s or more and wind up to {good_wind} kn. "
-               f"Okay: period of {good_period - 2} s or more and wind up to {good_wind + 5} kn. Poor: everything else. "
+    st.plotly_chart(make_quality_chart(daylight_hours, now, w_factor, w_unit), width="stretch")
+    st.caption(f"Good: swell period of {good_period} s or more and wind up to {wind_text(good_wind, w_unit)}. "
+               f"Okay: period of {good_period - 2} s or more and wind up to {wind_text(good_wind + 5, w_unit)}. Poor: everything else. "
                "On top of that: onshore wind and swell from the wrong direction lower the rating one level, "
-               "offshore wind counts as 5 kn lighter, and wave height is checked against your level. "
+               f"offshore wind counts as {wind_text(5, w_unit)} lighter, and wave height is checked against your level. "
                "Change the limits in the sidebar. The dashed line marks the current hour.")
 
 with tab_waves:
     wave_col1, wave_col2, wave_col3 = st.columns(3)
     with wave_col1:
-        st.subheader("Wave height (m)")
-        st.plotly_chart(make_line_chart(marine_df["wave_height"], now, "m"), width="stretch")
+        st.subheader(f"Wave height ({h_unit})")
+        st.plotly_chart(make_line_chart(marine_df["wave_height"] * h_factor, now, h_unit), width="stretch")
     with wave_col2:
-        st.subheader("Swell wave height (m)")
-        st.plotly_chart(make_line_chart(marine_df["swell_wave_height"], now, "m"), width="stretch")
+        st.subheader(f"Swell wave height ({h_unit})")
+        st.plotly_chart(make_line_chart(marine_df["swell_wave_height"] * h_factor, now, h_unit), width="stretch")
     with wave_col3:
         st.subheader("Swell period (s)")
         st.plotly_chart(make_line_chart(marine_df["swell_wave_period"], now, "s"), width="stretch")
@@ -380,8 +394,8 @@ with tab_waves:
     st.caption("\"from\" is the direction the swell or waves come from: NW means they travel towards the south-east.")
 
 with tab_wind:
-    st.subheader("Wind speed (knots) and direction")
-    st.plotly_chart(make_wind_chart(wind_df, now), width="stretch")
+    st.subheader(f"Wind speed ({w_unit}) and direction")
+    st.plotly_chart(make_wind_chart(wind_df, now, w_factor, w_unit), width="stretch")
     st.caption("Arrows show where the wind blows towards, every 3 hours.")
     st.subheader("Wind every 3 hours")
     st.dataframe(table)
@@ -389,15 +403,16 @@ with tab_wind:
 with tab_tide:
     tide_col1, tide_col2 = st.columns(2)
     with tide_col1:
-        st.subheader("Tide (m above/below mean sea level)")
-        st.plotly_chart(make_line_chart(tide, now, "m"), width="stretch")
+        st.subheader(f"Tide ({h_unit} above/below mean sea level)")
+        st.plotly_chart(make_line_chart(tide * h_factor, now, h_unit), width="stretch")
     with tide_col2:
-        st.subheader("Water temperature (°C)")
-        water_fig = make_line_chart(marine_df["sea_surface_temperature"], now, "°C")
+        st.subheader(f"Water temperature ({t_unit})")
+        temp = convert_temp(marine_df["sea_surface_temperature"], t_unit)   # a whole column converted at once
+        water_fig = make_line_chart(temp, now, t_unit)
         # Plotly zooms in as far as it can, which would make a change of 0.4 °C look dramatic.
-        # So the axis shows at least 3 °C around the data.
-        temp = marine_df["sea_surface_temperature"]
-        water_fig.update_yaxes(range=[temp.min() - 1.5, temp.max() + 1.5])
+        # So the axis shows at least 3 °C (5.4 °F) around the data.
+        pad = 2.7 if t_unit == "°F" else 1.5
+        water_fig.update_yaxes(range=[temp.min() - pad, temp.max() + pad])
         st.plotly_chart(water_fig, width="stretch")
     st.caption("Tide data comes from a global sea-level model with a coarse grid. "
                "It shows the rough rhythm of high and low tide, not an exact local tide table.")
@@ -405,10 +420,10 @@ with tab_tide:
 with tab_daily:
     daily_col1, daily_col2 = st.columns(2)
     with daily_col1:
-        st.subheader("Wave height (m)")
+        st.subheader(f"Wave height ({h_unit})")
         st.dataframe(daily_waves)
     with daily_col2:
-        st.subheader("Wind speed (knots)")
+        st.subheader(f"Wind speed ({w_unit})")
         st.dataframe(daily_wind)
 
 with tab_all:
@@ -416,7 +431,7 @@ with tab_all:
     rows = []
     for spot in SPOTS:
         try:
-            rows.append(summarize_spot(spot, rules, skill))
+            rows.append(summarize_spot(spot, rules, skill, h_unit, w_unit))
         except (requests.RequestException, KeyError):
             st.warning(f"No data for {spot} right now.")   # one failing spot shouldn't break the whole table
     if rows:
@@ -432,6 +447,7 @@ with tab_guide:
     st.subheader("How to read this forecast")
     st.markdown("""
 The big coloured card at the top is the short answer. These notes explain the numbers behind it.
+(The examples below use metres, knots and °C. You can switch units in the sidebar.)
 
 ### Swell period (seconds), the most important number
 The time between two waves. **Longer is better.**

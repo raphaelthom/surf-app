@@ -284,3 +284,20 @@ def test_daylight_only_keeps_hours_whose_middle_is_in_daylight():
     # 07:00 has its middle (07:30) before sunrise (07:41), 08:00 is the first hour; 17:00 (17:30) is the last, 18:00 (18:30) is after sunset
     assert kept.index[0] == pd.Timestamp("2026-10-24 08:00")
     assert kept.index[-1] == pd.Timestamp("2026-10-24 17:00")
+
+
+# ---------- units ----------
+from surf_logic import convert_temp, wind_text
+
+def test_convert_temp():
+    assert convert_temp(20, "°C") == 20
+    assert convert_temp(20, "°F") == 68
+
+def test_wind_text_converts_knots():
+    assert wind_text(10) == "10 knots"
+    assert wind_text(10, "km/h") == "19 km/h"
+    assert wind_text(10, "mph") == "12 mph"
+
+def test_rate_conditions_reason_uses_the_chosen_wind_unit():
+    reason = rate_conditions(11, 12, wind_unit="km/h")[1]   # a good period, so Okay only because of the wind
+    assert "km/h" in reason and "knots" not in reason
