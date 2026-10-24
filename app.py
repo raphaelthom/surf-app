@@ -197,7 +197,7 @@ too_small, too_big = SKILL_LEVELS[skill]   # the wave height range that is comfo
 coords = SPOTS[spot_name]
 lat, lon = coords
 
-# A short description for the "Spot info" tab. The forecast point is a spot in the water near the named place.
+# A short description for the "About" section of the spot view. The forecast point is a spot in the water near the named place.
 SPOT_NOTES = {
     "Lisbon": "The forecast point lies off the coast west of Lisbon, near Cascais and Carcavelos. "
               "These beaches catch Atlantic swell, and the coast is known for beach breaks close to the city.",
@@ -331,170 +331,210 @@ power_series = wave_power(marine_df["wave_height"], marine_df["swell_wave_period
 power_now = power_series.loc[now]
 
 # ---------- 2. Display ----------
-sunrise_today, sunset_today = sun_times[now.date()]
-st.caption(f"{spot_name} ({lat}, {lon}) · local time {now:%a %d %b, %H:%M} · "
-           f"sunrise {sunrise_today:%H:%M}, sunset {sunset_today:%H:%M}")
+# Three views, one for each job: one spot in detail, all spots compared, and a guide for beginners.
+# Everything inside "with view_spot:" etc. is drawn inside that tab. The "with" blocks can be entered again later.
+view_spot, view_compare, view_guide = st.tabs(["🏄 Spot forecast", "🌍 Compare spots", "📖 Beginner's guide"])
 
-# Colours and texts for the big verdict card
-TILE_COLORS = {"Good": "#1b9e77", "Okay": "#d68a00", "Poor": "#6b7280"}
-VERDICTS = {"Good": "Good – go surf!", "Okay": "Okay – surfable", "Poor": "Poor – skip it"}
-if best_level == "Poor":   # if even the best hours are poor, don't call it a "best time"
-    best_line = f"No good window {day_label}"
-else:
-    best_line = f"Best time {day_label}: {best_start:%H:%M}–{best_end:%H:%M} ({best_level.lower()} conditions)"
+with view_spot:
+    sunrise_today, sunset_today = sun_times[now.date()]
+    st.caption(f"{spot_name} ({lat}, {lon}) · local time {now:%a %d %b, %H:%M} · "
+               f"sunrise {sunrise_today:%H:%M}, sunset {sunset_today:%H:%M}")
 
-# If the best window ends because of the wind, add a warning line to the card
-warning_line = ""
-if best_level != "Poor":
-    warning = wind_warning(wind_df, spot_name, best_end)
-    if warning:
-        warning_line = f'<div style="font-size:0.95rem; margin-top:0.5rem;">⚠️ {warning}</div>'
+    # Colours and texts for the big verdict card
+    TILE_COLORS = {"Good": "#1b9e77", "Okay": "#d68a00", "Poor": "#6b7280"}
+    VERDICTS = {"Good": "Good – go surf!", "Okay": "Okay – surfable", "Poor": "Poor – skip it"}
+    if best_level == "Poor":   # if even the best hours are poor, don't call it a "best time"
+        best_line = f"No good window {day_label}"
+    else:
+        best_line = f"Best time {day_label}: {best_start:%H:%M}–{best_end:%H:%M} ({best_level.lower()} conditions)"
 
-# The verdict card: one big coloured box with the answer to "should I go?".
-# st.markdown can draw plain HTML when unsafe_allow_html=True (safe here: the text is made by our own code).
-st.markdown(
-    f'<div style="background:{TILE_COLORS[rating]}; color:white; padding:1.2rem 1.6rem; border-radius:12px; margin:0.5rem 0 1rem 0;">'
-    f'<div style="font-size:0.9rem; opacity:0.9;">Right now at {spot_name}</div>'
-    f'<div style="font-size:2.4rem; font-weight:700; line-height:1.2;">{VERDICTS[rating]}</div>'
-    f'<div style="font-size:1rem; margin-top:0.3rem;">{reason[0].upper() + reason[1:]}</div>'
-    f'<div style="font-size:1.1rem; font-weight:600; margin-top:0.6rem;">{best_line}</div>'
-    f'{warning_line}'
-    f'</div>',
-    unsafe_allow_html=True)
+    # If the best window ends because of the wind, add a warning line to the card
+    warning_line = ""
+    if best_level != "Poor":
+        warning = wind_warning(wind_df, spot_name, best_end)
+        if warning:
+            warning_line = f'<div style="font-size:0.95rem; margin-top:0.5rem;">⚠️ {warning}</div>'
 
-# The four numbers that matter most. help="..." adds a small (?) with an explanation on hover.
-WIND_NOTES = {"Offshore": "clean, smooth waves", "Cross-shore": "neutral, a bit bumpy", "Onshore": "choppy, messy waves"}
-if current_wave < too_small:
-    size_note = f"small for {skill.lower()} level"
-elif current_wave > too_big:
-    size_note = f"big for {skill.lower()} level"
-else:
-    size_note = f"good size for {skill.lower()} level"
+    # The verdict card: one big coloured box with the answer to "should I go?".
+    # st.markdown can draw plain HTML when unsafe_allow_html=True (safe here: the text is made by our own code).
+    st.markdown(
+        f'<div style="background:{TILE_COLORS[rating]}; color:white; padding:1.2rem 1.6rem; border-radius:12px; margin:0.5rem 0 1rem 0;">'
+        f'<div style="font-size:0.9rem; opacity:0.9;">Right now at {spot_name}</div>'
+        f'<div style="font-size:2.4rem; font-weight:700; line-height:1.2;">{VERDICTS[rating]}</div>'
+        f'<div style="font-size:1rem; margin-top:0.3rem;">{reason[0].upper() + reason[1:]}</div>'
+        f'<div style="font-size:1.1rem; font-weight:600; margin-top:0.6rem;">{best_line}</div>'
+        f'{warning_line}'
+        f'</div>',
+        unsafe_allow_html=True)
 
-key1, key2, key3, key4 = st.columns(4)
-with key1:
-    st.metric("Wave height", f"{current_wave * h_factor:.1f} {h_unit}", help="How tall the waves are. Bigger is not always better: it has to match your level.")
-    st.caption(size_note)
-with key2:
-    st.metric("Swell", f"{current_period:.1f} s {degrees_to_compass(current_swell_direction)}",
-              help="Seconds between waves, and the direction they come from. A longer period means more powerful, better organised waves.")
-    st.caption("direction fits this spot" if swell_ok else "direction is off for this spot")
-    TREND_ICONS = {"building": "📈", "dropping": "📉", "steady": "➡️"}
-    st.caption(f"{TREND_ICONS[trend]} {trend}" + ("" if trend == "steady" else f" ({trend_change:+.0f}% in 6 h)"))
-with key3:
-    st.metric("Wind", f"{current_wind * w_factor:.0f} {w_unit} {degrees_to_compass(current_direction)}",
-              help="Wind speed and where it blows from. Light wind, blowing from land to sea, is best.")
-    st.caption(f"{current_wind_type.lower()}: {WIND_NOTES[current_wind_type]}")
-with key4:
-    st.metric("Water temperature", f"{convert_temp(water_temp, t_unit):.1f} {t_unit}",
-              help=f"Tells you what to wear: a wetsuit is usually needed below about {convert_temp(22, t_unit):.0f} {t_unit}.")
-    st.caption(f"Wear: {wetsuit_for(water_temp)}")   # water_temp is always in °C here, whatever unit is shown
+    # The four numbers that matter most. help="..." adds a small (?) with an explanation on hover.
+    WIND_NOTES = {"Offshore": "clean, smooth waves", "Cross-shore": "neutral, a bit bumpy", "Onshore": "choppy, messy waves"}
+    # Every card has the same three parts: a big number, a small coloured "pill" with the status (the "delta"
+    # of st.metric) and one grey caption line. Same parts, same height, so the row looks tidy.
+    # delta_color sets the pill colour; delta_arrow="off" hides the little arrow.
+    if current_wave < too_small:
+        size_pill, size_color = "too small", "orange"
+    elif current_wave > too_big:
+        size_pill, size_color = "too big", "red"
+    else:
+        size_pill, size_color = "good size", "green"
 
-# "This week at a glance": one coloured tile per day with that day's best rating and time window.
-# best_per_day returns a list of (date, rating, start, end); one column per day.
-st.subheader("This week at a glance")
-week = best_per_day(daylight_hours, now)
-for column, (date, level, start, end) in zip(st.columns(len(week)), week):
-    day_name = "Today" if date == now.date() else f"{date:%a %d}"
-    window = "–" if level == "Poor" else f"{start:%H:%M}–{end:%H:%M}"   # no window to show if even the best hours are poor
-    with column:
-        st.markdown(
-            f'<div style="background:{TILE_COLORS[level]}; color:white; padding:0.7rem 0.4rem; border-radius:10px; text-align:center; margin-bottom:0.6rem;">'
-            f'<div style="font-size:0.85rem; opacity:0.9;">{day_name}</div>'
-            f'<div style="font-size:1.2rem; font-weight:700;">{level}</div>'
-            f'<div style="font-size:0.8rem;">{window}</div>'
-            f'</div>',
-            unsafe_allow_html=True)
-st.caption("Each tile shows the best daylight stretch of that day. Further ahead, forecasts get less reliable.")
+    # the swell trend: a grey pill with an arrow up (building) or down (dropping), or just "steady"
+    if trend == "steady":
+        trend_pill, trend_arrow = "steady", "off"
+    else:
+        trend_pill = f"{trend}, {trend_change:+.0f}% in 6 h"
+        trend_arrow = "up" if trend == "building" else "down"
 
-# Secondary data hides in an expander until someone wants it
-with st.expander("More conditions: tide, wave power, wave direction"):
-    more1, more2, more3, more4 = st.columns(4)
-    with more1:
-        st.metric("Tide", f"{tide_now * h_factor:+.1f} {h_unit}", help="Sea level compared with the average. Plus = higher than average.")
-        if tide_kind:
-            st.caption(f"{tide_trend}, next {tide_kind.lower()} tide at {tide_time:%H:%M}")
-        else:
-            st.caption(tide_trend)
-    with more2:
-        st.metric("Wave power", f"{power_now:.0f} kW/m", help="Roughly how much energy the waves carry. Higher = punchier waves.")
-        st.caption("0.49 × height² × period")
-    with more3:
+    # the wind type decides the colour: offshore is the best case, onshore the worst
+    wind_colors = {"Offshore": "green", "Cross-shore": "gray", "Onshore": "red"}
+
+    key1, key2, key3, key4 = st.columns(4)
+    with key1:
+        st.metric("Wave height", f"{current_wave * h_factor:.1f} {h_unit}", delta=size_pill, delta_color=size_color, delta_arrow="off",
+                  help="How tall the waves are. Bigger is not always better: it has to match your level.")
+        st.caption(f"for {skill.lower()} level")
+    with key2:
+        st.metric("Swell", f"{current_period:.1f} s {degrees_to_compass(current_swell_direction)}",
+                  delta=trend_pill, delta_color="gray", delta_arrow=trend_arrow,
+                  help="Seconds between waves, and the direction they come from. A longer period means more powerful, better organised waves. The pill shows whether the swell is building or dropping over the next 6 hours.")
+        st.caption("direction fits this spot" if swell_ok else "direction is off for this spot")
+    with key3:
+        st.metric("Wind", f"{current_wind * w_factor:.0f} {w_unit} {degrees_to_compass(current_direction)}",
+                  delta=current_wind_type.lower(), delta_color=wind_colors[current_wind_type], delta_arrow="off",
+                  help="Wind speed and where it blows from. Light wind, blowing from land to sea (offshore), is best.")
+        st.caption(WIND_NOTES[current_wind_type])
+    with key4:
+        # wetsuit_for gives e.g. "thin wetsuit (shorty or 3/2)"; the pill shows the part before the bracket
+        st.metric("Water temperature", f"{convert_temp(water_temp, t_unit):.1f} {t_unit}",
+                  delta=wetsuit_for(water_temp).split(" (")[0], delta_color="gray", delta_arrow="off",
+                  help=f"A wetsuit is usually needed below about {convert_temp(22, t_unit):.0f} {t_unit}.")   # water_temp is always in °C here, whatever unit is shown
+        st.caption("what to wear")
+
+    # "This week at a glance": one coloured tile per day with that day's best rating and time window.
+    # best_per_day returns a list of (date, rating, start, end); one column per day.
+    st.subheader("This week at a glance")
+    week = best_per_day(daylight_hours, now)
+    for column, (date, level, start, end) in zip(st.columns(len(week)), week):
+        day_name = "Today" if date == now.date() else f"{date:%a %d}"
+        window = "–" if level == "Poor" else f"{start:%H:%M}–{end:%H:%M}"   # no window to show if even the best hours are poor
+        with column:
+            st.markdown(
+                f'<div style="background:{TILE_COLORS[level]}; color:white; padding:0.7rem 0.4rem; border-radius:10px; text-align:center; margin-bottom:0.6rem;">'
+                f'<div style="font-size:0.85rem; opacity:0.9;">{day_name}</div>'
+                f'<div style="font-size:1.2rem; font-weight:700;">{level}</div>'
+                f'<div style="font-size:0.8rem;">{window}</div>'
+                f'</div>',
+                unsafe_allow_html=True)
+    st.caption("Each tile shows the best daylight stretch of that day. Further ahead, forecasts get less reliable.")
+
+    # Secondary data hides in an expander until someone wants it
+    with st.expander("More conditions: tide, wave power, wave direction"):
+        more1, more2, more3, more4 = st.columns(4)
+        with more1:
+            st.metric("Tide", f"{tide_now * h_factor:+.1f} {h_unit}", help="Sea level compared with the average. Plus = higher than average.")
+            if tide_kind:
+                st.caption(f"{tide_trend}, next {tide_kind.lower()} tide at {tide_time:%H:%M}")
+            else:
+                st.caption(tide_trend)
+        with more2:
+            st.metric("Wave power", f"{power_now:.0f} kW/m", help="Roughly how much energy the waves carry. Higher = punchier waves.")
+            st.caption("0.49 × height² × period")
+        with more3:
+            low, high = spot_info["swell_window"]
+            st.metric("Swell direction", "Works here" if swell_ok else "Off-angle")
+            st.caption(f"{spot_name} likes swell from {degrees_to_compass(low)} to {degrees_to_compass(high)}")
+        with more4:
+            st.metric("Wind waves from", degrees_to_compass(current_wave_direction))
+            st.caption(f"{current_wave_direction:.0f}° · swell from {current_swell_direction:.0f}°")
+    st.caption("New to surfing? The 📖 Beginner's guide tab explains what all of this means.")
+
+    # The charts for this spot: st.tabs puts them into clickable tabs, so the page doesn't become one long scroll.
+    tab_best, tab_waves, tab_wind, tab_tide = st.tabs(["Best times", "Waves", "Wind", "Tides & water"])
+
+    # st.plotly_chart shows a Plotly figure; width="stretch" makes it fill the column.
+    with tab_best:
+        st.subheader("Surf quality by hour (daylight)")
+        st.plotly_chart(make_quality_chart(daylight_hours, now, w_factor, w_unit), width="stretch")
+        st.caption(f"Good: swell period of {good_period} s or more and wind up to {wind_text(good_wind, w_unit)}. "
+                   f"Okay: period of {good_period - 2} s or more and wind up to {wind_text(good_wind + 5, w_unit)}. Poor: everything else. "
+                   "On top of that: onshore wind and swell from the wrong direction lower the rating one level, "
+                   f"offshore wind counts as {wind_text(5, w_unit)} lighter, and wave height is checked against your level. "
+                   "Change the limits in the sidebar. The dashed line marks the current hour.")
+
+    with tab_waves:
+        wave_col1, wave_col2, wave_col3 = st.columns(3)
+        with wave_col1:
+            st.subheader(f"Wave height ({h_unit})")
+            st.plotly_chart(make_line_chart(marine_df["wave_height"] * h_factor, now, h_unit), width="stretch")
+        with wave_col2:
+            st.subheader(f"Swell wave height ({h_unit})")
+            st.plotly_chart(make_line_chart(marine_df["swell_wave_height"] * h_factor, now, h_unit), width="stretch")
+        with wave_col3:
+            st.subheader("Swell period (s)")
+            st.plotly_chart(make_line_chart(marine_df["swell_wave_period"], now, "s"), width="stretch")
+        st.subheader("Wave power (kW per metre of wave front)")
+        st.plotly_chart(make_line_chart(power_series, now, "kW/m"), width="stretch")
+        st.caption("A rough measure of how strong the waves are: 0.49 × wave height² × swell period. "
+                   "Height counts squared, so bigger waves are much more powerful.")
+        st.subheader("Swell every 3 hours")
+        st.dataframe(swell_table)
+        st.caption("\"from\" is the direction the swell or waves come from: NW means they travel towards the south-east.")
+
+    with tab_wind:
+        st.subheader(f"Wind speed ({w_unit}) and direction")
+        st.plotly_chart(make_wind_chart(wind_df, now, w_factor, w_unit), width="stretch")
+        st.caption("Arrows show where the wind blows towards, every 3 hours.")
+        st.subheader("Wind every 3 hours")
+        st.dataframe(table)
+
+    with tab_tide:
+        tide_col1, tide_col2 = st.columns(2)
+        with tide_col1:
+            st.subheader(f"Tide ({h_unit} above/below mean sea level)")
+            st.plotly_chart(make_line_chart(tide * h_factor, now, h_unit), width="stretch")
+        with tide_col2:
+            st.subheader(f"Water temperature ({t_unit})")
+            temp = convert_temp(marine_df["sea_surface_temperature"], t_unit)   # a whole column converted at once
+            water_fig = make_line_chart(temp, now, t_unit)
+            # Plotly zooms in as far as it can, which would make a change of 0.4 °C look dramatic.
+            # So the axis shows at least 3 °C (5.4 °F) around the data.
+            pad = 2.7 if t_unit == "°F" else 1.5
+            water_fig.update_yaxes(range=[temp.min() - pad, temp.max() + pad])
+            st.plotly_chart(water_fig, width="stretch")
+        st.caption("Tide data comes from a global sea-level model with a coarse grid. "
+                   "It shows the rough rhythm of high and low tide, not an exact local tide table.")
+
+    # More about the spot and the tables behind the charts hide in expanders
+    with st.expander(f"About {spot_name}"):
+        st.write(SPOT_NOTES[spot_name])
         low, high = spot_info["swell_window"]
-        st.metric("Swell direction", "Works here" if swell_ok else "Off-angle")
-        st.caption(f"{spot_name} likes swell from {degrees_to_compass(low)} to {degrees_to_compass(high)}")
-    with more4:
-        st.metric("Wind waves from", degrees_to_compass(current_wave_direction))
-        st.caption(f"{current_wave_direction:.0f}° · swell from {current_swell_direction:.0f}°")
+        st.markdown(
+            f"- **The beach faces:** {degrees_to_compass(spot_info['faces'])} ({spot_info['faces']}°). "
+            f"Wind from the opposite side is offshore.\n"
+            f"- **Swell that works here:** from {degrees_to_compass(low)} to {degrees_to_compass(high)} ({low}° to {high}°)\n"
+            f"- **Forecast point:** {lat}, {lon}, slightly offshore. The wave data covers a grid of a few kilometres, "
+            f"so it describes the area, not one exact break."
+        )
+        # st.map shows a map with a dot for each row of the table (the columns have to be called lat and lon)
+        st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}), zoom=8, size=1500)
+        st.caption("The directions are rough defaults used by the rating. They can be wrong for individual breaks.")
 
-# st.tabs puts the details into clickable tabs, so the page doesn't become one long scroll.
-tab_best, tab_waves, tab_wind, tab_tide, tab_daily, tab_all, tab_spot, tab_guide = st.tabs(
-    ["Best times", "Waves", "Wind", "Tides & water", "Daily summary", "All spots", "Spot info", "📖 How to read this"])
 
-# st.plotly_chart shows a Plotly figure; width="stretch" makes it fill the column.
-with tab_best:
-    st.subheader("Surf quality by hour (daylight)")
-    st.plotly_chart(make_quality_chart(daylight_hours, now, w_factor, w_unit), width="stretch")
-    st.caption(f"Good: swell period of {good_period} s or more and wind up to {wind_text(good_wind, w_unit)}. "
-               f"Okay: period of {good_period - 2} s or more and wind up to {wind_text(good_wind + 5, w_unit)}. Poor: everything else. "
-               "On top of that: onshore wind and swell from the wrong direction lower the rating one level, "
-               f"offshore wind counts as {wind_text(5, w_unit)} lighter, and wave height is checked against your level. "
-               "Change the limits in the sidebar. The dashed line marks the current hour.")
+    with st.expander("Daily summary and raw data"):
+        daily_col1, daily_col2 = st.columns(2)
+        with daily_col1:
+            st.subheader(f"Wave height ({h_unit})")
+            st.dataframe(daily_waves)
+        with daily_col2:
+            st.subheader(f"Wind speed ({w_unit})")
+            st.dataframe(daily_wind)
+        st.subheader("Raw hourly data")
+        st.dataframe(marine_df)
 
-with tab_waves:
-    wave_col1, wave_col2, wave_col3 = st.columns(3)
-    with wave_col1:
-        st.subheader(f"Wave height ({h_unit})")
-        st.plotly_chart(make_line_chart(marine_df["wave_height"] * h_factor, now, h_unit), width="stretch")
-    with wave_col2:
-        st.subheader(f"Swell wave height ({h_unit})")
-        st.plotly_chart(make_line_chart(marine_df["swell_wave_height"] * h_factor, now, h_unit), width="stretch")
-    with wave_col3:
-        st.subheader("Swell period (s)")
-        st.plotly_chart(make_line_chart(marine_df["swell_wave_period"], now, "s"), width="stretch")
-    st.subheader("Wave power (kW per metre of wave front)")
-    st.plotly_chart(make_line_chart(power_series, now, "kW/m"), width="stretch")
-    st.caption("A rough measure of how strong the waves are: 0.49 × wave height² × swell period. "
-               "Height counts squared, so bigger waves are much more powerful.")
-    st.subheader("Swell every 3 hours")
-    st.dataframe(swell_table)
-    st.caption("\"from\" is the direction the swell or waves come from: NW means they travel towards the south-east.")
-
-with tab_wind:
-    st.subheader(f"Wind speed ({w_unit}) and direction")
-    st.plotly_chart(make_wind_chart(wind_df, now, w_factor, w_unit), width="stretch")
-    st.caption("Arrows show where the wind blows towards, every 3 hours.")
-    st.subheader("Wind every 3 hours")
-    st.dataframe(table)
-
-with tab_tide:
-    tide_col1, tide_col2 = st.columns(2)
-    with tide_col1:
-        st.subheader(f"Tide ({h_unit} above/below mean sea level)")
-        st.plotly_chart(make_line_chart(tide * h_factor, now, h_unit), width="stretch")
-    with tide_col2:
-        st.subheader(f"Water temperature ({t_unit})")
-        temp = convert_temp(marine_df["sea_surface_temperature"], t_unit)   # a whole column converted at once
-        water_fig = make_line_chart(temp, now, t_unit)
-        # Plotly zooms in as far as it can, which would make a change of 0.4 °C look dramatic.
-        # So the axis shows at least 3 °C (5.4 °F) around the data.
-        pad = 2.7 if t_unit == "°F" else 1.5
-        water_fig.update_yaxes(range=[temp.min() - pad, temp.max() + pad])
-        st.plotly_chart(water_fig, width="stretch")
-    st.caption("Tide data comes from a global sea-level model with a coarse grid. "
-               "It shows the rough rhythm of high and low tide, not an exact local tide table.")
-
-with tab_daily:
-    daily_col1, daily_col2 = st.columns(2)
-    with daily_col1:
-        st.subheader(f"Wave height ({h_unit})")
-        st.dataframe(daily_waves)
-    with daily_col2:
-        st.subheader(f"Wind speed ({w_unit})")
-        st.dataframe(daily_wind)
-
-with tab_all:
+with view_compare:
     st.subheader("Where is it good?")
+    st.caption(f"Ranked for your surf level: {skill.lower()}. Change it at the top of the page.")
     rows = []
     for spot in SPOTS:
         try:
@@ -519,24 +559,10 @@ with tab_all:
                "\"Best time\" is the best daylight stretch still ahead today, or tomorrow once the day is over. "
                "\"Week score\" is the average rating of all daylight hours in the next 7 days: 0 means always poor, 100 always good.")
 
-with tab_spot:
-    st.subheader(spot_name)
-    st.write(SPOT_NOTES[spot_name])
-    low, high = spot_info["swell_window"]
-    st.markdown(
-        f"- **The beach faces:** {degrees_to_compass(spot_info['faces'])} ({spot_info['faces']}°). "
-        f"Wind from the opposite side is offshore.\n"
-        f"- **Swell that works here:** from {degrees_to_compass(low)} to {degrees_to_compass(high)} ({low}° to {high}°)\n"
-        f"- **Forecast point:** {lat}, {lon}, slightly offshore. The wave data covers a grid of a few kilometres, "
-        f"so it describes the area, not one exact break."
-    )
-    # st.map shows a map with a dot for each row of the table (the columns have to be called lat and lon)
-    st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}), zoom=8, size=1500)
-    st.caption("The directions are rough defaults used by the rating. They can be wrong for individual breaks.")
 
 # A plain-language guide for people who don't surf. st.markdown writes text with simple formatting:
 # **bold**, bullet lists with "-", and "###" for small headings.
-with tab_guide:
+with view_guide:
     st.subheader("How to read this forecast")
     st.markdown("""
 The big coloured card at the top is the short answer. These notes explain the numbers behind it.
@@ -594,9 +620,6 @@ offshore wind counts as 5 knots lighter, and the wave height is compared with yo
 You can change the limits in the sidebar under "Advanced: rating limits".
 """)
 
-# An expander hides its content until the user clicks it.
-with st.expander("Raw hourly data"):
-    st.dataframe(marine_df)
 
 # Open-Meteo's free API asks for a credit (data licence: CC BY 4.0).
 st.caption(f"Forecast loaded at {loaded_at:%H:%M} ({spot_name} time). It refreshes about once an hour. "

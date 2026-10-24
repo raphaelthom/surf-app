@@ -10,6 +10,7 @@ It starts the app itself, opens it in your installed Google Chrome (in the
 background, with a temporary profile) and saves PNGs into the screenshots/ folder.
 """
 import argparse
+import re
 import subprocess
 import sys
 import time
@@ -69,10 +70,14 @@ def main():
 
             spot = (args.spot or "default").lower().replace(" ", "-")
             tab_names = page.get_by_role("tab").all_text_contents()   # read the tabs from the page itself
+            # The first three are the views (spot, compare, guide), the rest are the chart tabs inside the
+            # spot view. The chart tabs are only visible while the spot view is open, so click them before
+            # the other two views.
+            tab_names = tab_names[:1] + tab_names[3:] + tab_names[1:3]
             for name in tab_names:
                 page.get_by_role("tab", name=name).click()
                 page.wait_for_timeout(2500)                           # let the charts draw
-                slug = name.lower().replace("&", "and").replace(" ", "-")
+                slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")   # letters and digits only, no emoji or quotes
                 path = out / f"{spot}_{slug}{suffix}.png"
                 page.screenshot(path=str(path), full_page=True)
                 print("saved", path.relative_to(PROJECT))
