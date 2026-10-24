@@ -4,7 +4,8 @@ import pandas as pd
 import plotly.graph_objects as go   # Plotly: interactive charts
 
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
-from surf_logic import degrees_to_compass, rate_conditions, rate_hours, find_best_time, next_turning_point
+from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, next_turning_point,
+                        wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS)
 
 SPOTS = {
     "Lisbon": (38.65, -9.40),
@@ -100,7 +101,7 @@ def to_table(hourly):
 
 # One row of the "All spots" table: loads a spot's data (cached, so spots that were loaded
 # before are instant) and picks out the current values, the rating and the best time.
-def summarize_spot(spot, rules):
+def summarize_spot(spot, rules, skill):
     lat, lon = SPOTS[spot]
     marine_data, timezone = get_marine_data(lat, lon)
     marine = to_table(marine_data)
@@ -109,8 +110,10 @@ def summarize_spot(spot, rules):
 
     period = marine.loc[now, "swell_wave_period"]
     wind_speed = wind.loc[now, "wind_speed_10m"]
-    rating, reason = rate_conditions(period, wind_speed, **rules)
-    daylight = rate_hours(marine, wind, **rules).between_time("06:00", "18:00")
+    rating, reason = rate_for_spot(period, wind_speed, wind.loc[now, "wind_direction_10m"],
+                                   marine.loc[now, "swell_wave_direction"], marine.loc[now, "wave_height"],
+                                   spot, skill, **rules)
+    daylight = rate_hours(marine, wind, spot, skill, **rules).between_time("06:00", "18:00")
     day_label, best_level, start, end = find_best_time(daylight, now)
 
     return {
@@ -142,6 +145,11 @@ lat, lon = coords
 # The sidebar is a panel on the left. Two sliders let you set what "Good" means to you;
 # "Okay" is derived from them: 2 s less swell period and 5 knots more wind are still okay.
 with st.sidebar:
+    st.header("Your level")
+    skill = st.selectbox("Surf level", list(SKILL_LEVELS.keys()), index=1)   # index=1 -> "Intermediate" is pre-selected
+    too_small, too_big = SKILL_LEVELS[skill]
+    st.caption(f"Comfortable wave height: {too_small:g}–{too_big:g} m. Smaller waves lower the rating, "
+               "bigger waves make it Poor.")
     st.header("Rating rules")
     good_period = st.slider("Good: swell period at least (s)", 6, 16, 10)   # (label, min, max, start value)
     good_wind = st.slider("Good: wind at most (knots)", 0, 25, 10)
@@ -188,7 +196,9 @@ current_wind = wind_df.loc[now, "wind_speed_10m"]
 current_direction = wind_df.loc[now, "wind_direction_10m"]
 current_swell_direction = marine_df.loc[now, "swell_wave_direction"]   # directions are where it comes FROM, in degrees
 current_wave_direction = marine_df.loc[now, "wave_direction"]
-rating, reason = rate_conditions(current_period, current_wind, **rules)  # unpack the two returned values
+# rate_for_spot uses period and wind plus the spot's rules (wind direction, swell window) and your level
+rating, reason = rate_for_spot(current_period, current_wind, current_direction, current_swell_direction,
+                               current_wave, spot_name, skill, **rules)   # unpack the two returned values
 
 # Wind table with a compass label, one row every 3 hours
 table = wind_df.iloc[::3]
@@ -209,7 +219,7 @@ daily_waves = marine_df.groupby(days)["wave_height"].agg(["min", "max", "mean"])
 daily_wind = wind_df.groupby(days)["wind_speed_10m"].agg(["min", "max", "mean"]).round(1)
 
 # Rating for every single hour, then only the daylight hours
-hours = rate_hours(marine_df, wind_df, **rules)
+hours = rate_hours(marine_df, wind_df, spot_name, skill, **rules)
 daylight_hours = hours.between_time("06:00", "18:00")   # hours that start between 06:00 and 18:00 local time, so daylight until 19:00
 
 # Best time to surf: the hours still ahead today, or tomorrow if the daylight is over
@@ -221,6 +231,13 @@ tide_now = tide.loc[now]
 tide_trend = "rising" if tide.loc[now + pd.Timedelta(hours=1)] > tide_now else "falling"
 tide_kind, tide_time = next_turning_point(tide, now)
 water_temp = marine_df.loc[now, "sea_surface_temperature"]
+
+# Spot rules: is the wind onshore/offshore, does the swell direction work, and how much power do the waves have?
+spot_info = SPOT_INFO[spot_name]
+current_wind_type = wind_type(current_direction, spot_info["faces"])
+swell_ok = swell_in_window(current_swell_direction, spot_info["swell_window"])
+power_series = wave_power(marine_df["wave_height"], marine_df["swell_wave_period"])   # works on a whole column at once
+power_now = power_series.loc[now]
 
 # ---------- 2. Display ----------
 st.caption(f"{spot_name} ({lat}, {lon}) · local time {now:%a %d %b, %H:%M}")
@@ -258,6 +275,21 @@ with col8:
     else:
         st.caption(tide_trend)
 
+col9, col10, col11, col12 = st.columns(4)
+with col9:
+    st.metric("Wind type", current_wind_type)
+    st.caption(f"{spot_name}'s beach faces {degrees_to_compass(spot_info['faces'])}")
+with col10:
+    low, high = spot_info["swell_window"]
+    st.metric("Swell direction", "Works here" if swell_ok else "Off-angle")
+    st.caption(f"Best from {degrees_to_compass(low)} to {degrees_to_compass(high)}")
+with col11:
+    st.metric("Wave power", f"{power_now:.0f} kW/m")
+    st.caption("0.49 × height² × period")
+with col12:
+    st.metric("Your level", skill)
+    st.caption(f"{too_small:g}–{too_big:g} m is comfortable")
+
 # st.tabs puts the details into clickable tabs, so the page doesn't become one long scroll.
 tab_best, tab_waves, tab_wind, tab_tide, tab_daily, tab_all = st.tabs(
     ["Best times", "Waves", "Wind", "Tides & water", "Daily summary", "All spots"])
@@ -268,6 +300,8 @@ with tab_best:
     st.plotly_chart(make_quality_chart(daylight_hours, now), width="stretch")
     st.caption(f"Good: swell period of {good_period} s or more and wind up to {good_wind} kn. "
                f"Okay: period of {good_period - 2} s or more and wind up to {good_wind + 5} kn. Poor: everything else. "
+               "On top of that: onshore wind and swell from the wrong direction lower the rating one level, "
+               "offshore wind counts as 5 kn lighter, and wave height is checked against your level. "
                "Change the limits in the sidebar. The dashed line marks the current hour.")
 
 with tab_waves:
@@ -281,6 +315,10 @@ with tab_waves:
     with wave_col3:
         st.subheader("Swell period (s)")
         st.plotly_chart(make_line_chart(marine_df["swell_wave_period"], now, "s"), width="stretch")
+    st.subheader("Wave power (kW per metre of wave front)")
+    st.plotly_chart(make_line_chart(power_series, now, "kW/m"), width="stretch")
+    st.caption("A rough measure of how strong the waves are: 0.49 × wave height² × swell period. "
+               "Height counts squared, so bigger waves are much more powerful.")
     st.subheader("Swell every 3 hours")
     st.dataframe(swell_table)
     st.caption("\"from\" is the direction the swell or waves come from: NW means they travel towards the south-east.")
@@ -322,7 +360,7 @@ with tab_all:
     rows = []
     for spot in SPOTS:
         try:
-            rows.append(summarize_spot(spot, rules))
+            rows.append(summarize_spot(spot, rules, skill))
         except (requests.RequestException, KeyError):
             st.warning(f"No data for {spot} right now.")   # one failing spot shouldn't break the whole table
     if rows:

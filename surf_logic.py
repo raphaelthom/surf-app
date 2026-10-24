@@ -73,12 +73,121 @@ def next_turning_point(levels, now):
             return "Low", future.index[i]
     return None, None
 
+# ---------- Spot-specific rules ----------
+# Rough defaults per spot, the values are my best guess and can be corrected:
+#   "faces": the compass direction (in degrees) you look when you stand on the beach facing the sea.
+#            Wind coming FROM that direction blows onto the beach (onshore); wind from the
+#            opposite direction blows off the land (offshore).
+#   "swell_window": the range of swell directions (from, to) in degrees that works at this spot.
+SPOT_INFO = {
+    "Lisbon": {"faces": 230, "swell_window": (240, 330)},
+    "San Diego": {"faces": 260, "swell_window": (200, 300)},
+    "Siargao": {"faces": 90, "swell_window": (60, 160)},
+    "Lombok": {"faces": 200, "swell_window": (160, 240)},
+    "Taghazout": {"faces": 280, "swell_window": (250, 350)},
+}
+
+# Comfortable wave height range in metres for each skill level: (too small below, too big above)
+SKILL_LEVELS = {
+    "Beginner": (0.3, 1.2),
+    "Intermediate": (0.6, 2.0),
+    "Advanced": (1.0, 4.0),
+}
+
+# The ratings from worst to best, so a position in this list can be moved up or down
+LEVELS = ["Poor", "Okay", "Good"]
+
+# How far apart are two directions? 350° and 10° are only 20° apart, not 340°.
+# The result is always between 0 and 180.
+def angle_between(a, b):
+    diff = abs(a - b) % 360
+    return min(diff, 360 - diff)
+
+# Is the wind onshore, offshore or in between? Compare where the wind comes FROM
+# with the direction the beach faces: within 60° = it blows onto the beach.
+def wind_type(wind_direction, coast_faces):
+    diff = angle_between(wind_direction, coast_faces)
+    if diff <= 60:
+        return "Onshore"
+    elif diff >= 120:
+        return "Offshore"
+    else:
+        return "Cross-shore"
+
+# Does the swell come from a direction that works at this spot? window = (from, to) in degrees.
+# (direction - low) % 360 is "how many degrees past the start of the window", which also works
+# for windows that cross north, like 340° to 40°.
+def swell_in_window(swell_direction, window):
+    low, high = window
+    return (swell_direction - low) % 360 <= (high - low) % 360
+
+# Rough power of the waves in kilowatts per metre of wave front: 0.49 * height² * period.
+# Height counts squared, so a 2 m wave carries four times the power of a 1 m wave.
+def wave_power(height, period):
+    return 0.49 * height ** 2 * period
+
+# One step down the ratings: Good -> Okay -> Poor (Poor stays Poor)
+def one_level_down(rating):
+    return LEVELS[max(LEVELS.index(rating) - 1, 0)]
+
+# The full rating for a spot. It starts with the period/wind rating from rate_conditions
+# and then adjusts it with what only this spot and this surfer know:
+#   offshore wind: counted as 5 knots lighter (it grooms the waves)
+#   onshore wind: one level worse
+#   swell from a direction that doesn't work here: one level worse
+#   waves too small for your level: one level worse; too big: Poor
+# Returns (rating, reason) just like rate_conditions.
+def rate_for_spot(swell_wave_period, wind_speed_10m, wind_direction, swell_direction, wave_height,
+                  spot, skill="Intermediate", **rules):
+    info = SPOT_INFO[spot]
+    kind = wind_type(wind_direction, info["faces"])
+
+    wind = wind_speed_10m
+    if kind == "Offshore":
+        wind = max(wind_speed_10m - 5, 0)   # max(..., 0) so the wind can't become negative
+    rating, reason = rate_conditions(swell_wave_period, wind, **rules)
+
+    notes = []   # short remarks collected while adjusting, added to the reason at the end
+    if kind == "Offshore":
+        notes.append("offshore wind")
+    elif kind == "Onshore":
+        rating = one_level_down(rating)
+        notes.append("onshore wind")
+
+    if not swell_in_window(swell_direction, info["swell_window"]):
+        rating = one_level_down(rating)
+        notes.append("swell direction doesn't suit this spot")
+
+    too_small, too_big = SKILL_LEVELS[skill]
+    if wave_height > too_big:
+        rating = "Poor"
+        notes.append(f"waves too big for {skill.lower()} level")
+    elif wave_height < too_small:
+        rating = one_level_down(rating)
+        notes.append(f"waves a bit small for {skill.lower()} level")
+
+    if notes:
+        reason = reason + "; " + ", ".join(notes)
+    return rating, reason
+
 # Rates every single hour. Returns a table with one row per hour and the columns
 # "period", "wind" and "rating". The **rules are the optional limits of rate_conditions.
-def rate_hours(marine_df, wind_df, **rules):
+# If a spot is given, the spot rules and the skill level are used too (rate_for_spot).
+def rate_hours(marine_df, wind_df, spot=None, skill="Intermediate", **rules):
     hours = pd.DataFrame({"period": marine_df["swell_wave_period"], "wind": wind_df["wind_speed_10m"]})
-    # rate_conditions returns (rating, reason), so [0] takes just the rating
-    hours["rating"] = [rate_conditions(p, w, **rules)[0] for p, w in zip(hours["period"], hours["wind"])]
+    if spot is None:
+        # rate_conditions returns (rating, reason), so [0] takes just the rating
+        hours["rating"] = [rate_conditions(p, w, **rules)[0] for p, w in zip(hours["period"], hours["wind"])]
+    else:
+        hours["wind_direction"] = wind_df["wind_direction_10m"]
+        hours["swell_direction"] = marine_df["swell_wave_direction"]
+        hours["height"] = marine_df["wave_height"]
+        # itertuples gives one row at a time; row.period etc. read the columns of that row
+        hours["rating"] = [
+            rate_for_spot(row.period, row.wind, row.wind_direction, row.swell_direction, row.height,
+                          spot, skill, **rules)[0]
+            for row in hours.itertuples()
+        ]
     return hours
 
 # Best time to surf: the best stretch of daylight hours still ahead today, or tomorrow

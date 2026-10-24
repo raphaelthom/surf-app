@@ -62,7 +62,7 @@ def main():
             page.wait_for_selector("text=Conditions right now", timeout=60000)
 
             if args.spot:
-                page.locator('[data-testid="stSelectbox"]').click()
+                page.get_by_test_id("stMainBlockContainer").locator("[data-testid=stSelectbox]").first.click()
                 page.get_by_role("option", name=args.spot).click()
                 page.wait_for_selector(f"text=local time", timeout=60000)
                 page.wait_for_timeout(2000)

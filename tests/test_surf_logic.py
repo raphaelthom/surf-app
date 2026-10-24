@@ -173,3 +173,75 @@ def test_find_best_time_switches_to_tomorrow_when_daylight_is_over():
     day_label, level, start, end = find_best_time(table, pd.Timestamp("2026-10-24 20:00"))
     assert (day_label, level) == ("tomorrow", "Okay")
     assert (start, end) == (pd.Timestamp("2026-10-25 07:00"), pd.Timestamp("2026-10-25 09:00"))
+
+
+# ---------- spot rules: wind type, swell window, wave power, rate_for_spot ----------
+from surf_logic import angle_between, wind_type, swell_in_window, wave_power, rate_for_spot
+
+
+@pytest.mark.parametrize("a, b, expected", [(10, 350, 20), (0, 180, 180), (90, 90, 0), (270, 10, 100)])
+def test_angle_between_takes_the_short_way_round(a, b, expected):
+    assert angle_between(a, b) == expected
+
+
+# a beach facing west (270°): wind from the west blows onto it, wind from the east blows off it
+@pytest.mark.parametrize("wind_direction, expected", [
+    (270, "Onshore"), (220, "Onshore"), (90, "Offshore"), (150, "Offshore"), (180, "Cross-shore"), (0, "Cross-shore"),
+])
+def test_wind_type(wind_direction, expected):
+    assert wind_type(wind_direction, 270) == expected
+
+
+@pytest.mark.parametrize("direction, window, expected", [
+    (270, (240, 330), True), (240, (240, 330), True), (330, (240, 330), True),
+    (200, (240, 330), False), (340, (240, 330), False),
+    (350, (340, 40), True), (10, (340, 40), True), (90, (340, 40), False),   # window across north
+])
+def test_swell_in_window(direction, window, expected):
+    assert swell_in_window(direction, window) == expected
+
+
+def test_wave_power_grows_with_height_squared():
+    assert wave_power(2, 10) == pytest.approx(4 * wave_power(1, 10))
+    assert wave_power(1, 10) == pytest.approx(4.9)
+
+
+# Taghazout: beach faces west (280°), swell window 250–350°. These conditions are Good by period/wind alone.
+GOOD = dict(swell_wave_period=12, wind_speed_10m=5, wave_height=1.5, spot="Taghazout")
+
+def test_rate_for_spot_good_with_cross_shore_wind_and_right_swell():
+    assert rate_for_spot(wind_direction=10, swell_direction=300, **GOOD)[0] == "Good"
+
+def test_rate_for_spot_onshore_wind_is_one_level_worse():
+    assert rate_for_spot(wind_direction=280, swell_direction=300, **GOOD)[0] == "Okay"
+
+def test_rate_for_spot_wrong_swell_direction_is_one_level_worse():
+    rating, reason = rate_for_spot(wind_direction=10, swell_direction=150, **GOOD)
+    assert rating == "Okay" and "swell direction" in reason
+
+def test_rate_for_spot_two_problems_are_two_levels_worse():
+    assert rate_for_spot(wind_direction=280, swell_direction=150, **GOOD)[0] == "Poor"
+
+def test_rate_for_spot_offshore_wind_counts_as_lighter():
+    strong = dict(GOOD, wind_speed_10m=14)   # 14 kn is only Okay normally, offshore it counts as 9 kn
+    assert rate_for_spot(wind_direction=100, swell_direction=300, **strong)[0] == "Good"
+    assert rate_for_spot(wind_direction=10, swell_direction=300, **strong)[0] == "Okay"
+
+def test_rate_for_spot_skill_level_wave_height():
+    big = dict(GOOD, wave_height=3.0)
+    assert rate_for_spot(wind_direction=10, swell_direction=300, skill="Intermediate", **big)[0] == "Poor"   # too big
+    assert rate_for_spot(wind_direction=10, swell_direction=300, skill="Advanced", **big)[0] == "Good"
+    small = dict(GOOD, wave_height=0.4)
+    assert rate_for_spot(wind_direction=10, swell_direction=300, skill="Intermediate", **small)[0] == "Okay"   # a bit small
+    assert rate_for_spot(wind_direction=10, swell_direction=300, skill="Beginner", **small)[0] == "Good"
+
+def test_rate_for_spot_poor_never_goes_below_poor():
+    poor = dict(GOOD, swell_wave_period=5)
+    assert rate_for_spot(wind_direction=280, swell_direction=150, **poor)[0] == "Poor"
+
+def test_rate_hours_with_a_spot_uses_the_spot_rules():
+    idx = pd.date_range("2026-10-24 06:00", periods=2, freq="h")
+    marine = pd.DataFrame({"swell_wave_period": [12, 12], "swell_wave_direction": [300, 150], "wave_height": [1.5, 1.5]}, index=idx)
+    wind = pd.DataFrame({"wind_speed_10m": [5, 5], "wind_direction_10m": [10, 10]}, index=idx)
+    assert list(rate_hours(marine, wind, "Taghazout")["rating"]) == ["Good", "Okay"]
+    assert list(rate_hours(marine, wind)["rating"]) == ["Good", "Good"]   # without a spot: only period and wind
