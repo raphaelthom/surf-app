@@ -325,8 +325,8 @@ with st.expander("More conditions: tide, wave power, wave direction"):
         st.caption(f"{current_wave_direction:.0f}° · swell from {current_swell_direction:.0f}°")
 
 # st.tabs puts the details into clickable tabs, so the page doesn't become one long scroll.
-tab_best, tab_waves, tab_wind, tab_tide, tab_daily, tab_all = st.tabs(
-    ["Best times", "Waves", "Wind", "Tides & water", "Daily summary", "All spots"])
+tab_best, tab_waves, tab_wind, tab_tide, tab_daily, tab_all, tab_guide = st.tabs(
+    ["Best times", "Waves", "Wind", "Tides & water", "Daily summary", "All spots", "📖 How to read this"])
 
 # st.plotly_chart shows a Plotly figure; width="stretch" makes it fill the column.
 with tab_best:
@@ -403,6 +403,65 @@ with tab_all:
         st.dataframe(overview.drop(columns=["_rank", "_period"]), hide_index=True)
     st.caption("Uses the rating rules from the sidebar. Times are local to each spot; "
                "\"Best time\" is the best daylight stretch still ahead today, or tomorrow once the day is over.")
+
+# A plain-language guide for people who don't surf. st.markdown writes text with simple formatting:
+# **bold**, bullet lists with "-", and "###" for small headings.
+with tab_guide:
+    st.subheader("How to read this forecast")
+    st.markdown("""
+The big coloured card at the top is the short answer. These notes explain the numbers behind it.
+
+### Swell period (seconds), the most important number
+The time between two waves. **Longer is better.**
+- **Under 8 s:** short, choppy waves made by local wind. Weak and messy.
+- **8–10 s:** surfable, but not great.
+- **10 s and more:** organised waves that have travelled far across the ocean. Powerful and clean.
+- **14 s and more:** very powerful, often big. Mostly for experienced surfers.
+
+### Wave height (metres)
+How tall the waves are. Bigger is not automatically better. It has to match your level:
+beginners are comfortable up to about 1.2 m, intermediates up to about 2 m, and advanced surfers handle 4 m and more.
+Very small waves are too weak to ride, and very big ones are dangerous. The app lowers the rating if the size doesn't suit your level.
+
+### Wind speed (knots)
+**Lighter is better.** 1 knot is about 1.85 km/h.
+- **Under 10 kn:** light, waves stay smooth.
+- **10–15 kn:** noticeable, the surface gets bumpy.
+- **Over 15 kn:** strong, the waves become messy.
+
+### Wind direction: offshore, onshore or cross-shore
+This matters as much as wind speed. The words describe where the wind blows relative to the beach:
+- **Offshore** (from the land towards the sea): the best case. It holds the wave face up and smooth, like a clean wall. 🟢
+- **Cross-shore** (along the beach): neutral. A bit bumpy, but surfable. 🟡
+- **Onshore** (from the sea towards the land): the worst case. It pushes the waves over early and makes the surface choppy and messy. 🔴
+
+The compass letter next to the wind speed is where the wind comes **from**: "6 kn N" is a wind from the north.
+Each spot faces a different way, so the same wind can be offshore at one spot and onshore at another.
+
+### Swell direction
+Waves come from a certain compass direction, just like wind. Every spot only works well with swell from certain directions,
+because other directions are blocked by land or arrive at a bad angle. If the direction doesn't fit, the rating drops.
+
+### Tide
+The sea level rises and falls twice a day. Some spots work better at low tide, others at high tide, and many are best in the middle.
+The app shows a rough tide curve from a global model. It is not an exact tide table.
+
+### Water temperature
+- **Above 24 °C:** boardshorts or a thin top.
+- **20–24 °C:** a thin wetsuit (a 2 mm "shorty" or 3/2).
+- **16–20 °C:** a 4/3 wetsuit.
+- **Under 16 °C:** a thick wetsuit with boots, maybe gloves and a hood.
+
+### Wave power (kW/m)
+A rough measure of how much energy the waves carry (0.49 × height² × period). Since height counts squared,
+a 2 m wave is four times as powerful as a 1 m wave. Higher means punchier, more forceful waves.
+
+### How the rating works
+**Good** means a swell period of 10 s or more and wind of 10 knots or less. **Okay** means 8 s or more and up to 15 knots.
+Everything else is **Poor**. Then the spot's rules adjust it: onshore wind or a wrong swell direction lowers it by one level,
+offshore wind counts as 5 knots lighter, and the wave height is compared with your level.
+You can change the limits in the sidebar under "Advanced: rating limits".
+""")
 
 # An expander hides its content until the user clicks it.
 with st.expander("Raw hourly data"):
