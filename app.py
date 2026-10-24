@@ -23,10 +23,12 @@ def get_marine_data(lat, lon):
                     "latitude": lat, 
                     "longitude": lon, 
                     "hourly": "wave_height,swell_wave_height,swell_wave_period", 
+                    "timezone": "auto",   # times in the spot's local time instead of GMT
                     "forecast_days": 7})
     response.raise_for_status()  # raises an error if the API replied with an error code
     marine_data = response.json()
-    return marine_data["hourly"]
+    # return two values: the data and the spot's timezone name, e.g. "Europe/Lisbon"
+    return marine_data["hourly"], marine_data["timezone"]
 
 @st.cache_data(ttl=3600)  # same caching as above
 
@@ -37,6 +39,7 @@ def get_wind_data(lat, lon):
                     "longitude": lon, 
                     "hourly": "wind_speed_10m,wind_direction_10m",
                     "wind_speed_unit": "kn",   # knots instead of km/h
+                    "timezone": "auto",        # local time, same as the marine data
                     "forecast_days": 7})
     response.raise_for_status()
     wind_data = response.json()
@@ -82,7 +85,7 @@ lat, lon = coords
 # try/except: Python tries the code under "try". If the network or API fails,
 # it jumps to "except" and shows a message instead of crashing with a red traceback.
 try:
-    marine_data = get_marine_data(lat, lon)   # catch what the function returns; returns a dict of lists
+    marine_data, timezone = get_marine_data(lat, lon)   # catch what the function returns: a dict of lists and the timezone
 except (requests.RequestException, KeyError) as error:
     st.error(f"Couldn't load the wave data. (Details: {error!r})")
     st.stop()  # stop the script here, since everything below needs this data
@@ -111,8 +114,14 @@ wind_df = pd.DataFrame(wind_data)           # turn the dict of lists into a tabl
 wind_df["time"] = pd.to_datetime(wind_df["time"]) # converts text to date objects
 wind_df = wind_df.set_index("time") # makes that column the row labels instead of 0, 1, 2…
 
-current_period = marine_df["swell_wave_period"].iloc[0]
-current_wind = wind_df["wind_speed_10m"].iloc[0]
+# What time is it at the spot right now? Ask the clock for the current time in that timezone,
+# round down to the full hour (the forecast has one row per hour) and drop the timezone label
+# so it can be compared with the table's row labels.
+now = pd.Timestamp.now(tz=timezone).floor("h").tz_localize(None)
+st.write(f"Local time at {spot_name}: {now:%a %d %b, %H:%M}")
+
+current_period = marine_df.loc[now, "swell_wave_period"]   # .loc picks the row by its time label
+current_wind = wind_df.loc[now, "wind_speed_10m"]
 rating, reason = rate_conditions(current_period, current_wind)  # unpack the two returned values
 st.write(f"Conditions right now: {rating} – {reason}")
 
