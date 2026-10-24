@@ -23,7 +23,7 @@ def get_marine_data(lat, lon):
                     params={
                     "latitude": lat, 
                     "longitude": lon, 
-                    "hourly": "wave_height,swell_wave_height,swell_wave_period,sea_level_height_msl,sea_surface_temperature", 
+                    "hourly": "wave_height,swell_wave_height,swell_wave_period,sea_level_height_msl,sea_surface_temperature,wave_direction,swell_wave_direction", 
                     "timezone": "auto",   # times in the spot's local time instead of GMT
                     "forecast_days": 7})
     response.raise_for_status()  # raises an error if the API replied with an error code
@@ -150,11 +150,18 @@ current_period = marine_df.loc[now, "swell_wave_period"]   # .loc picks the row 
 current_wave = marine_df.loc[now, "wave_height"]
 current_wind = wind_df.loc[now, "wind_speed_10m"]
 current_direction = wind_df.loc[now, "wind_direction_10m"]
+current_swell_direction = marine_df.loc[now, "swell_wave_direction"]   # directions are where it comes FROM, in degrees
+current_wave_direction = marine_df.loc[now, "wave_direction"]
 rating, reason = rate_conditions(current_period, current_wind, **rules)  # unpack the two returned values
 
 # Wind table with a compass label, one row every 3 hours
 table = wind_df.iloc[::3]
 table["compass"] = table["wind_direction_10m"].apply(degrees_to_compass)
+
+# Swell table with compass labels, one row every 3 hours
+swell_table = marine_df.iloc[::3][["wave_height", "swell_wave_height", "swell_wave_period"]].copy()
+swell_table["swell from"] = marine_df.iloc[::3]["swell_wave_direction"].apply(degrees_to_compass)
+swell_table["waves from"] = marine_df.iloc[::3]["wave_direction"].apply(degrees_to_compass)
 
 # Daily summary: one row per day instead of 24 hourly rows.
 # groupby puts all rows with the same date into one group; .agg then
@@ -208,17 +215,18 @@ with col4:
 
 col5, col6, col7, col8 = st.columns(4)
 with col5:
-    st.metric("Wind", f"{current_wind:.0f} kn {degrees_to_compass(current_direction)}")
+    st.metric("Swell from", degrees_to_compass(current_swell_direction))
+    st.caption(f"{current_swell_direction:.0f}° · wind waves from {degrees_to_compass(current_wave_direction)}")
 with col6:
-    st.metric("Water temperature", f"{water_temp:.1f} °C")
+    st.metric("Wind", f"{current_wind:.0f} kn {degrees_to_compass(current_direction)}")
 with col7:
-    st.metric("Tide", f"{tide_now:+.1f} m")
-    st.caption(f"{tide_trend} (relative to mean sea level)")
+    st.metric("Water temperature", f"{water_temp:.1f} °C")
 with col8:
+    st.metric("Tide", f"{tide_now:+.1f} m")
     if tide_kind:
-        st.metric(f"Next {tide_kind.lower()} tide", f"{tide_time:%H:%M}")
+        st.caption(f"{tide_trend}, next {tide_kind.lower()} tide at {tide_time:%H:%M}")
     else:
-        st.metric("Next tide", "–")
+        st.caption(tide_trend)
 
 # st.tabs puts the details into clickable tabs, so the page doesn't become one long scroll.
 tab_best, tab_waves, tab_wind, tab_tide, tab_daily = st.tabs(
@@ -243,6 +251,9 @@ with tab_waves:
     with wave_col3:
         st.subheader("Swell wave period (seconds)")
         st.plotly_chart(make_line_chart(marine_df["swell_wave_period"], now, "s"), width="stretch")
+    st.subheader("Swell every 3 hours")
+    st.dataframe(swell_table)
+    st.caption("\"from\" is the direction the swell or waves come from: NW means they travel towards the south-east.")
 
 with tab_wind:
     st.subheader("Wind speed (knots) and direction")
