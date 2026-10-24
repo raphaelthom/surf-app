@@ -331,3 +331,7 @@ with tab_daily:
 # An expander hides its content until the user clicks it.
 with st.expander("Raw hourly data"):
     st.dataframe(marine_df)
+
+# Open-Meteo's free API asks for a credit (data licence: CC BY 4.0).
+st.caption("Weather and marine data by [Open-Meteo.com](https://open-meteo.com/) "
+           "(CC BY 4.0). Surf ratings are a simple rule of thumb, not professional advice.")
