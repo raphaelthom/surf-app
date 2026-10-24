@@ -191,6 +191,20 @@ too_small, too_big = SKILL_LEVELS[skill]   # the wave height range that is comfo
 coords = SPOTS[spot_name]
 lat, lon = coords
 
+# A short description for the "Spot info" tab. The forecast point is a spot in the water near the named place.
+SPOT_NOTES = {
+    "Lisbon": "The forecast point lies off the coast west of Lisbon, near Cascais and Carcavelos. "
+              "These beaches catch Atlantic swell, and the coast is known for beach breaks close to the city.",
+    "San Diego": "The forecast point lies off Point Loma and Ocean Beach in San Diego. "
+                 "It catches Pacific swell, and the water is cooler than the sunny weather suggests.",
+    "Siargao": "The forecast point lies off the east coast of Siargao Island near General Luna, "
+               "the island famous for Cloud 9 and its reef breaks facing the Pacific.",
+    "Lombok": "The forecast point lies off the south coast of Lombok, near Kuta and Mawi. "
+              "The south coast catches Indian Ocean swell and has beach and reef breaks.",
+    "Taghazout": "The forecast point lies off Taghazout on Morocco's Atlantic coast, "
+                 "a stretch known for its point breaks such as Anchor Point and Killer Point.",
+}
+
 # The sidebar is a panel on the left. The sliders let you set what "Good" means to you;
 # "Okay" is derived from them: 2 s less swell period and 5 knots more wind are still okay.
 # They sit inside an expander because most people never need to change them.
@@ -406,8 +420,8 @@ with st.expander("More conditions: tide, wave power, wave direction"):
         st.caption(f"{current_wave_direction:.0f}° · swell from {current_swell_direction:.0f}°")
 
 # st.tabs puts the details into clickable tabs, so the page doesn't become one long scroll.
-tab_best, tab_waves, tab_wind, tab_tide, tab_daily, tab_all, tab_guide = st.tabs(
-    ["Best times", "Waves", "Wind", "Tides & water", "Daily summary", "All spots", "📖 How to read this"])
+tab_best, tab_waves, tab_wind, tab_tide, tab_daily, tab_all, tab_spot, tab_guide = st.tabs(
+    ["Best times", "Waves", "Wind", "Tides & water", "Daily summary", "All spots", "Spot info", "📖 How to read this"])
 
 # st.plotly_chart shows a Plotly figure; width="stretch" makes it fill the column.
 with tab_best:
@@ -496,6 +510,21 @@ with tab_all:
     st.caption("Uses the rating rules from the sidebar. Times are local to each spot; "
                "\"Best time\" is the best daylight stretch still ahead today, or tomorrow once the day is over. "
                "\"Week score\" is the average rating of all daylight hours in the next 7 days: 0 means always poor, 100 always good.")
+
+with tab_spot:
+    st.subheader(spot_name)
+    st.write(SPOT_NOTES[spot_name])
+    low, high = spot_info["swell_window"]
+    st.markdown(
+        f"- **The beach faces:** {degrees_to_compass(spot_info['faces'])} ({spot_info['faces']}°). "
+        f"Wind from the opposite side is offshore.\n"
+        f"- **Swell that works here:** from {degrees_to_compass(low)} to {degrees_to_compass(high)} ({low}° to {high}°)\n"
+        f"- **Forecast point:** {lat}, {lon}, slightly offshore. The wave data covers a grid of a few kilometres, "
+        f"so it describes the area, not one exact break."
+    )
+    # st.map shows a map with a dot for each row of the table (the columns have to be called lat and lon)
+    st.map(pd.DataFrame({"lat": [lat], "lon": [lon]}), zoom=8, size=1500)
+    st.caption("The directions are rough defaults used by the rating. They can be wrong for individual breaks.")
 
 # A plain-language guide for people who don't surf. st.markdown writes text with simple formatting:
 # **bold**, bullet lists with "-", and "###" for small headings.
