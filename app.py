@@ -49,13 +49,26 @@ def degrees_to_compass(degrees):
 
 # Rates surf conditions as "Good", "Okay" or "Poor": long swell periods and light wind
 # (in knots) are better. Python checks the conditions top to bottom and uses the first true one.
+# Returns two values (a tuple): the rating and a short reason for it.
 def rate_conditions(swell_wave_period, wind_speed_10m):
     if swell_wave_period >= 10 and wind_speed_10m <= 10:
-        return "Good"
+        return "Good", "long swell period and light wind"
     elif swell_wave_period >= 8 and wind_speed_10m <= 15:
-        return "Okay"
+        # "Good" failed, so the period is under 10 s, the wind is over 10 kn, or both
+        if swell_wave_period < 10 and wind_speed_10m > 10:
+            return "Okay", "swell period is a bit short and wind is a bit strong"
+        elif swell_wave_period < 10:
+            return "Okay", "swell period is a bit short (under 10 s)"
+        else:
+            return "Okay", "wind is a bit strong (over 10 knots)"
     else:
-        return "Poor"
+        # the "Okay" test failed too, so the period is under 8 s, the wind is over 15 kn, or both
+        if swell_wave_period < 8 and wind_speed_10m > 15:
+            return "Poor", "swell period is too short and wind is too strong"
+        elif swell_wave_period < 8:
+            return "Poor", "swell period is too short (under 8 s)"
+        else:
+            return "Poor", "wind is too strong (over 15 knots)"
 
 # Streamlit re-runs this whole file from top to bottom
 # every time the user interacts with the page.
@@ -100,8 +113,8 @@ wind_df = wind_df.set_index("time") # makes that column the row labels instead o
 
 current_period = marine_df["swell_wave_period"].iloc[0]
 current_wind = wind_df["wind_speed_10m"].iloc[0]
-rating = rate_conditions(current_period, current_wind)
-st.write(f"Conditions right now: {rating}")
+rating, reason = rate_conditions(current_period, current_wind)  # unpack the two returned values
+st.write(f"Conditions right now: {rating} – {reason}")
 
 st.subheader("Wind speed (knots)")
 st.line_chart(wind_df["wind_speed_10m"])
