@@ -228,9 +228,16 @@ with st.sidebar:
 # A dictionary with the four limits. Writing **rules in a function call hands over every entry
 # as a separate argument, like good_period=..., good_wind=..., okay_period=..., okay_wind=...
 rules = dict(good_period=good_period, good_wind=good_wind, okay_period=good_period - 2, okay_wind=good_wind + 5)
-# Write the current choices into the page address (after all widgets exist, so these are the final values)
-st.query_params.update(spot=spot_name, level=skill, height=h_unit, wind=w_unit, temp=t_unit)
-st.sidebar.caption("Your choices are saved in the page address: bookmark or share the link to keep them.")
+# Write the choices into the page address (after all widgets exist, so these are the final values).
+# Only choices that differ from the defaults are written, so the default view keeps a clean address
+# and a link only carries what you changed.
+defaults = {"spot": list(SPOTS)[0], "level": "Intermediate", "height": "m", "wind": "kn", "temp": "°C"}
+current = {"spot": spot_name, "level": skill, "height": h_unit, "wind": w_unit, "temp": t_unit}
+for key, value in current.items():
+    if value != defaults[key]:
+        st.query_params[key] = value
+    elif key in st.query_params:
+        del st.query_params[key]   # back to the default: remove it from the address again
 
 h_factor = HEIGHT_FACTORS[h_unit]   # how many ft in one metre (or 1 for metres)
 w_factor = WIND_FACTORS[w_unit]     # how many km/h or mph in one knot (or 1 for knots)
