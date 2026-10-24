@@ -131,7 +131,8 @@ def make_wind_chart(wind_df, now):
     every_3h = wind_df.iloc[::3]
     fig.add_trace(go.Scatter(
         x=every_3h.index, y=every_3h["wind_speed_10m"], mode="markers",
-        marker=dict(symbol="arrow", size=14, angle=(every_3h["wind_direction_10m"] + 180) % 360, angleref="up"),
+        marker=dict(symbol="arrow", size=18, color="#d95f02",   # big and orange so the arrows stand out from the line
+                    angle=(every_3h["wind_direction_10m"] + 180) % 360, angleref="up"),
         text=every_3h["wind_direction_10m"].apply(degrees_to_compass),
         hovertemplate="%{x|%a %H:%M}<br>%{y:.0f} knots from %{text}<extra></extra>",
     ))
@@ -309,7 +310,12 @@ with tab_tide:
         st.plotly_chart(make_line_chart(tide, now, "m"), width="stretch")
     with tide_col2:
         st.subheader("Water temperature (°C)")
-        st.plotly_chart(make_line_chart(marine_df["sea_surface_temperature"], now, "°C"), width="stretch")
+        water_fig = make_line_chart(marine_df["sea_surface_temperature"], now, "°C")
+        # Plotly zooms in as far as it can, which would make a change of 0.4 °C look dramatic.
+        # So the axis shows at least 3 °C around the data.
+        temp = marine_df["sea_surface_temperature"]
+        water_fig.update_yaxes(range=[temp.min() - 1.5, temp.max() + 1.5])
+        st.plotly_chart(water_fig, width="stretch")
     st.caption("Tide data comes from a global sea-level model with a coarse grid. "
                "It shows the rough rhythm of high and low tide, not an exact local tide table.")
 
