@@ -57,6 +57,12 @@ def get_wind_data(lat, lon):
     wind_data = response.json()
     return wind_data["hourly"]
 
+# When was this spot's data loaded? The function just returns the current time, and because it is cached
+# with the same one-hour limit as the fetch functions, the time stays the same until the data is fetched again.
+@st.cache_data(ttl=3600)
+def get_load_time(lat, lon):
+    return pd.Timestamp.now(tz="UTC")
+
 # Sunrise and sunset for each forecast day (local time at the spot), used to find the daylight hours.
 # Same caching as the other fetch functions.
 @st.cache_data(ttl=3600)
@@ -260,6 +266,8 @@ try:
 except (requests.RequestException, KeyError) as error:
     st.error(f"Couldn't load the sunrise and sunset times. (Details: {error!r})")
     st.stop()
+
+loaded_at = get_load_time(lat, lon).tz_convert(timezone)   # shown in the spot's local time
 
 # What time is it at the spot right now? Ask the clock for the current time in that timezone,
 # round down to the full hour (the forecast has one row per hour) and drop the timezone label
@@ -591,5 +599,6 @@ with st.expander("Raw hourly data"):
     st.dataframe(marine_df)
 
 # Open-Meteo's free API asks for a credit (data licence: CC BY 4.0).
-st.caption("Weather and marine data by [Open-Meteo.com](https://open-meteo.com/) "
+st.caption(f"Forecast loaded at {loaded_at:%H:%M} ({spot_name} time). It refreshes about once an hour. "
+           "Weather and marine data by [Open-Meteo.com](https://open-meteo.com/) "
            "(CC BY 4.0). Surf ratings are a simple rule of thumb, not professional advice.")
