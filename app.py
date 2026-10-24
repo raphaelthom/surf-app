@@ -47,6 +47,16 @@ def degrees_to_compass(degrees):
     label = DIRECTIONS[index] # looks up the label by position. Positions start at 0.
     return label
 
+# Rates surf conditions as "Good", "Okay" or "Poor": long swell periods and light wind
+# (in knots) are better. Python checks the conditions top to bottom and uses the first true one.
+def rate_conditions(swell_wave_period, wind_speed_10m):
+    if swell_wave_period >= 10 and wind_speed_10m <= 10:
+        return "Good"
+    elif swell_wave_period >= 8 and wind_speed_10m <= 15:
+        return "Okay"
+    else:
+        return "Poor"
+
 # Streamlit re-runs this whole file from top to bottom
 # every time the user interacts with the page.
 
@@ -87,6 +97,11 @@ except (requests.RequestException, KeyError) as error:
 wind_df = pd.DataFrame(wind_data)           # turn the dict of lists into a table; made a table with one column per key
 wind_df["time"] = pd.to_datetime(wind_df["time"]) # converts text to date objects
 wind_df = wind_df.set_index("time") # makes that column the row labels instead of 0, 1, 2…
+
+current_period = marine_df["swell_wave_period"].iloc[0]
+current_wind = wind_df["wind_speed_10m"].iloc[0]
+rating = rate_conditions(current_period, current_wind)
+st.write(f"Conditions right now: {rating}")
 
 st.subheader("Wind speed (knots)")
 st.line_chart(wind_df["wind_speed_10m"])
