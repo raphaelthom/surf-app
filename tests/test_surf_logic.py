@@ -130,3 +130,46 @@ def test_rate_conditions_stricter_limits_downgrade_the_rating():
 def test_rate_conditions_reason_uses_the_custom_limits():
     reason = rate_conditions(12, 20, good_period=10, good_wind=10, okay_period=8, okay_wind=18)[1]
     assert "18" in reason          # "wind is too strong (over 18 knots)"
+
+
+# ---------- rate_hours and find_best_time ----------
+from surf_logic import find_best_time, rate_hours
+
+
+def test_rate_hours_rates_every_hour():
+    index = pd.date_range("2026-10-24 06:00", periods=3, freq="h")
+    marine = pd.DataFrame({"swell_wave_period": [12, 9, 6]}, index=index)
+    wind = pd.DataFrame({"wind_speed_10m": [5, 5, 5]}, index=index)
+    hours = rate_hours(marine, wind)
+    assert list(hours["rating"]) == ["Good", "Okay", "Poor"]
+    assert list(hours.columns) == ["period", "wind", "rating"]
+
+
+def test_rate_hours_passes_the_limits_on():
+    index = pd.date_range("2026-10-24 06:00", periods=1, freq="h")
+    marine = pd.DataFrame({"swell_wave_period": [11]}, index=index)
+    wind = pd.DataFrame({"wind_speed_10m": [5]}, index=index)
+    assert rate_hours(marine, wind)["rating"].iloc[0] == "Good"
+    assert rate_hours(marine, wind, good_period=13, good_wind=10, okay_period=8, okay_wind=15)["rating"].iloc[0] == "Okay"
+
+
+def two_days(today_ratings, tomorrow_ratings):
+    """Daylight table: today from 06:00 and tomorrow from 06:00, with the given ratings."""
+    today = hours_table(today_ratings, "2026-10-24 06:00")
+    tomorrow = hours_table(tomorrow_ratings, "2026-10-25 06:00")
+    return pd.concat([today, tomorrow])
+
+
+def test_find_best_time_only_looks_at_hours_still_ahead_today():
+    table = two_days(["Good", "Good", "Poor", "Okay", "Okay"], ["Good"] * 3)
+    # it is 08:00: the morning Good hours are over, so the Okay block from 09:00 is the best that is left
+    day_label, level, start, end = find_best_time(table, pd.Timestamp("2026-10-24 08:00"))
+    assert (day_label, level) == ("today", "Okay")
+    assert (start, end) == (pd.Timestamp("2026-10-24 09:00"), pd.Timestamp("2026-10-24 11:00"))
+
+
+def test_find_best_time_switches_to_tomorrow_when_daylight_is_over():
+    table = two_days(["Good"] * 5, ["Poor", "Okay", "Okay"])
+    day_label, level, start, end = find_best_time(table, pd.Timestamp("2026-10-24 20:00"))
+    assert (day_label, level) == ("tomorrow", "Okay")
+    assert (start, end) == (pd.Timestamp("2026-10-25 07:00"), pd.Timestamp("2026-10-25 09:00"))

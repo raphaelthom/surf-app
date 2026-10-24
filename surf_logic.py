@@ -72,3 +72,25 @@ def next_turning_point(levels, now):
         if here < before and here <= after:
             return "Low", future.index[i]
     return None, None
+
+# Rates every single hour. Returns a table with one row per hour and the columns
+# "period", "wind" and "rating". The **rules are the optional limits of rate_conditions.
+def rate_hours(marine_df, wind_df, **rules):
+    hours = pd.DataFrame({"period": marine_df["swell_wave_period"], "wind": wind_df["wind_speed_10m"]})
+    # rate_conditions returns (rating, reason), so [0] takes just the rating
+    hours["rating"] = [rate_conditions(p, w, **rules)[0] for p, w in zip(hours["period"], hours["wind"])]
+    return hours
+
+# Best time to surf: the best stretch of daylight hours still ahead today, or tomorrow
+# once today's daylight is over. daylight_hours is a table made by rate_hours, reduced to daylight.
+# Returns (day_label, rating, start, end) where day_label is "today" or "tomorrow".
+def find_best_time(daylight_hours, now):
+    target_day = now.date()
+    day_hours = daylight_hours[(daylight_hours.index.date == target_day) & (daylight_hours.index >= now)]
+    day_label = "today"
+    if day_hours.empty:
+        target_day = (now + pd.Timedelta(days=1)).date()
+        day_hours = daylight_hours[daylight_hours.index.date == target_day]
+        day_label = "tomorrow"
+    level, start, end = find_best_window(day_hours)
+    return day_label, level, start, end

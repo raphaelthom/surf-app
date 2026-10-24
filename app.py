@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go   # Plotly: interactive charts
 
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
-from surf_logic import degrees_to_compass, rate_conditions, find_best_window, next_turning_point
+from surf_logic import degrees_to_compass, rate_conditions, rate_hours, find_best_time, next_turning_point
 
 SPOTS = {
     "Lisbon": (38.65, -9.40),
@@ -48,6 +48,7 @@ def get_wind_data(lat, lon):
 
 # Colours for the three ratings, used in the hourly quality chart
 RATING_COLORS = {"Good": "#1b9e77", "Okay": "#e6a117", "Poor": "#9aa0a6"}
+RATING_ICONS = {"Good": "🟢", "Okay": "🟡", "Poor": "⚪"}   # for the "All spots" table
 
 # A Plotly line chart for one column, with a dashed vertical line at "now".
 def make_line_chart(series, now, unit):
@@ -89,6 +90,41 @@ def make_quality_chart(hours, now):
     fig.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0), yaxis=dict(visible=False),
                       bargap=0.1, legend=dict(orientation="h", y=1.1))
     return fig
+
+# Turns the dict of lists from the API into a table with the time as row labels
+# (the same steps as in the main part below, packed into one function).
+def to_table(hourly):
+    df = pd.DataFrame(hourly)
+    df["time"] = pd.to_datetime(df["time"])
+    return df.set_index("time")
+
+# One row of the "All spots" table: loads a spot's data (cached, so spots that were loaded
+# before are instant) and picks out the current values, the rating and the best time.
+def summarize_spot(spot, rules):
+    lat, lon = SPOTS[spot]
+    marine_data, timezone = get_marine_data(lat, lon)
+    marine = to_table(marine_data)
+    wind = to_table(get_wind_data(lat, lon))
+    now = pd.Timestamp.now(tz=timezone).floor("h").tz_localize(None)   # the current hour AT THE SPOT
+
+    period = marine.loc[now, "swell_wave_period"]
+    wind_speed = wind.loc[now, "wind_speed_10m"]
+    rating, reason = rate_conditions(period, wind_speed, **rules)
+    daylight = rate_hours(marine, wind, **rules).between_time("06:00", "18:00")
+    day_label, best_level, start, end = find_best_time(daylight, now)
+
+    return {
+        "Spot": spot,
+        "Local time": f"{now:%H:%M}",
+        "Now": f"{RATING_ICONS[rating]} {rating}",
+        "Best time": "–" if best_level == "Poor" else f"{day_label} {start:%H:%M}–{end:%H:%M}",
+        "Wave height": f"{marine.loc[now, 'wave_height']:.1f} m",
+        "Swell": f"{period:.1f} s from {degrees_to_compass(marine.loc[now, 'swell_wave_direction'])}",
+        "Wind": f"{wind_speed:.0f} kn {degrees_to_compass(wind.loc[now, 'wind_direction_10m'])}",
+        # these two are only used for sorting and are removed before the table is shown
+        "_rank": {"Good": 3, "Okay": 2, "Poor": 1}[rating],
+        "_period": period,
+    }
 
 # Streamlit re-runs this whole file from top to bottom
 # every time the user interacts with the page.
@@ -170,20 +206,12 @@ days = marine_df.index.date   # the calendar date of every hourly row
 daily_waves = marine_df.groupby(days)["wave_height"].agg(["min", "max", "mean"]).round(1)
 daily_wind = wind_df.groupby(days)["wind_speed_10m"].agg(["min", "max", "mean"]).round(1)
 
-# Rating for every single hour (rate_conditions returns (rating, reason), so [0] takes the rating)
-hours = pd.DataFrame({"period": marine_df["swell_wave_period"], "wind": wind_df["wind_speed_10m"]})
-hours["rating"] = [rate_conditions(p, w, **rules)[0] for p, w in zip(hours["period"], hours["wind"])]
+# Rating for every single hour, then only the daylight hours
+hours = rate_hours(marine_df, wind_df, **rules)
 daylight_hours = hours.between_time("06:00", "18:00")   # hours that start between 06:00 and 18:00 local time, so daylight until 19:00
 
 # Best time to surf: the hours still ahead today, or tomorrow if the daylight is over
-target_day = now.date()
-day_hours = daylight_hours[(daylight_hours.index.date == target_day) & (daylight_hours.index >= now)]
-day_label = "today"
-if day_hours.empty:
-    target_day = (now + pd.Timedelta(days=1)).date()
-    day_hours = daylight_hours[daylight_hours.index.date == target_day]
-    day_label = "tomorrow"
-best_level, best_start, best_end = find_best_window(day_hours)
+day_label, best_level, best_start, best_end = find_best_time(daylight_hours, now)
 
 # Tide and water temperature right now
 tide = marine_df["sea_level_height_msl"]
@@ -229,8 +257,8 @@ with col8:
         st.caption(tide_trend)
 
 # st.tabs puts the details into clickable tabs, so the page doesn't become one long scroll.
-tab_best, tab_waves, tab_wind, tab_tide, tab_daily = st.tabs(
-    ["Best times", "Waves", "Wind", "Tides & water", "Daily summary"])
+tab_best, tab_waves, tab_wind, tab_tide, tab_daily, tab_all = st.tabs(
+    ["Best times", "Waves", "Wind", "Tides & water", "Daily summary", "All spots"])
 
 # st.plotly_chart shows a Plotly figure; width="stretch" makes it fill the column.
 with tab_best:
@@ -286,6 +314,21 @@ with tab_daily:
     with daily_col2:
         st.subheader("Wind speed (knots)")
         st.dataframe(daily_wind)
+
+with tab_all:
+    st.subheader("Where is it good right now?")
+    rows = []
+    for spot in SPOTS:
+        try:
+            rows.append(summarize_spot(spot, rules))
+        except (requests.RequestException, KeyError):
+            st.warning(f"No data for {spot} right now.")   # one failing spot shouldn't break the whole table
+    if rows:
+        # best rating first; spots with the same rating are sorted by swell period, longest first
+        overview = pd.DataFrame(rows).sort_values(["_rank", "_period"], ascending=False)
+        st.dataframe(overview.drop(columns=["_rank", "_period"]), hide_index=True)
+    st.caption("Uses the rating rules from the sidebar. Times are local to each spot; "
+               "\"Best time\" is the best daylight stretch still ahead today, or tomorrow once the day is over.")
 
 # An expander hides its content until the user clicks it.
 with st.expander("Raw hourly data"):
