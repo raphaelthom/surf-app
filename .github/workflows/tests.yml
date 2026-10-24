@@ -1,0 +1,16 @@
+# Runs the tests on GitHub every time code is pushed (or a pull request is opened).
+# A red cross next to a commit on GitHub means a test failed.
+name: Tests
+
+on: [push, pull_request]
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest        # a fresh Linux machine that GitHub provides for the run
+    steps:
+      - uses: actions/checkout@v4          # downloads the code of the repo onto that machine
+      - uses: actions/setup-python@v5      # installs Python
+        with:
+          python-version: "3.13"
+      - run: pip install -r requirements.txt pytest   # the app's packages plus pytest (no Playwright needed)
+      - run: python -m pytest

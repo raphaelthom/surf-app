@@ -56,3 +56,6 @@ and is covered by tests:
 pip install -r requirements-dev.txt   # once
 python -m pytest
 ```
+
+The same tests also run on GitHub after every push (see `.github/workflows/tests.yml`).
+A green check mark next to a commit means they passed, a red cross means one failed.
