@@ -10,6 +10,8 @@ For the selected spot it charts:
 - wind speed (knots) and wind direction
   ([Open-Meteo Weather API](https://open-meteo.com/en/docs))
 
+**Live app:** https://surf-app-rt.streamlit.app/
+
 No API key is needed. Forecasts are cached for one hour.
 
 ## Run it
