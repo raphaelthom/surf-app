@@ -305,7 +305,7 @@ def wind_warning(wind_df, spot, end):
     before_type = wind_type(wind_df.loc[before_time, "wind_direction_10m"], faces)
     after_type = wind_type(wind_df.loc[end, "wind_direction_10m"], faces)
     if after_type == "Onshore" and before_type != "Onshore":
-        return f"The wind turns onshore around {end:%H:%M}, so plan to be out of the water by then."
+        return f"The wind turns onshore around {end:%H:%M}, so expect the wave quality to drop after that."
     if wind_df.loc[end, "wind_speed_10m"] - wind_df.loc[before_time, "wind_speed_10m"] >= 4:
         return f"The wind picks up around {end:%H:%M}, so the surface gets bumpier after that."
     return None
