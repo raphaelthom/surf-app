@@ -59,7 +59,7 @@ def main():
             browser = p.chromium.launch(channel="chrome", headless=True)   # your installed Chrome
             page = browser.new_page(viewport=size)
             page.goto(url)
-            page.wait_for_selector("text=Conditions right now", timeout=60000)
+            page.wait_for_selector("text=Right now at", timeout=60000)
 
             if args.spot:
                 page.get_by_test_id("stMainBlockContainer").locator("[data-testid=stSelectbox]").first.click()

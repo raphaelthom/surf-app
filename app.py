@@ -138,23 +138,25 @@ st.set_page_config(page_title="Surf Forecast", page_icon="🏄", layout="wide")
 
 st.title("🏄 Surf Forecast")
 
-spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()))
+# Two dropdowns side by side: [2, 1] makes the first column twice as wide as the second
+pick_col1, pick_col2 = st.columns([2, 1])
+with pick_col1:
+    spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()))
+with pick_col2:
+    skill = st.selectbox("Your surf level", list(SKILL_LEVELS.keys()), index=1)   # index=1 -> "Intermediate" is pre-selected
+too_small, too_big = SKILL_LEVELS[skill]   # the wave height range that is comfortable at your level
 coords = SPOTS[spot_name]
 lat, lon = coords
 
-# The sidebar is a panel on the left. Two sliders let you set what "Good" means to you;
+# The sidebar is a panel on the left. The sliders let you set what "Good" means to you;
 # "Okay" is derived from them: 2 s less swell period and 5 knots more wind are still okay.
+# They sit inside an expander because most people never need to change them.
 with st.sidebar:
-    st.header("Your level")
-    skill = st.selectbox("Surf level", list(SKILL_LEVELS.keys()), index=1)   # index=1 -> "Intermediate" is pre-selected
-    too_small, too_big = SKILL_LEVELS[skill]
-    st.caption(f"Comfortable wave height: {too_small:g}–{too_big:g} m. Smaller waves lower the rating, "
-               "bigger waves make it Poor.")
-    st.header("Rating rules")
-    good_period = st.slider("Good: swell period at least (s)", 6, 16, 10)   # (label, min, max, start value)
-    good_wind = st.slider("Good: wind at most (knots)", 0, 25, 10)
-    st.caption(f"Okay: swell period at least {good_period - 2} s and wind up to {good_wind + 5} knots. "
-               "Everything else is Poor.")
+    with st.expander("Advanced: rating limits"):
+        good_period = st.slider("Good: swell period at least (s)", 6, 16, 10)   # (label, min, max, start value)
+        good_wind = st.slider("Good: wind at most (knots)", 0, 25, 10)
+        st.caption(f"Okay: swell period at least {good_period - 2} s and wind up to {good_wind + 5} knots. "
+                   "Everything else is Poor.")
 # A dictionary with the four limits. Writing **rules in a function call hands over every entry
 # as a separate argument, like good_period=..., good_wind=..., okay_period=..., okay_wind=...
 rules = dict(good_period=good_period, good_wind=good_wind, okay_period=good_period - 2, okay_wind=good_wind + 5)
@@ -242,53 +244,68 @@ power_now = power_series.loc[now]
 # ---------- 2. Display ----------
 st.caption(f"{spot_name} ({lat}, {lon}) · local time {now:%a %d %b, %H:%M}")
 
-# Top rows: the answer at a glance. st.columns(4) makes four equal columns side by side.
-# "with col1:" means "everything indented below goes into column 1".
-col1, col2, col3, col4 = st.columns(4)
-with col1:
-    st.metric("Conditions right now", rating)   # st.metric = a big number/label card
-    st.caption(reason)
-with col2:
-    if best_level == "Poor":   # if even the best hours are poor, don't call it a "best time"
-        st.metric(f"Best time {day_label}", "–")
-        st.caption(f"Only poor conditions {day_label}")
-    else:
-        st.metric(f"Best time {day_label}", f"{best_start:%H:%M}–{best_end:%H:%M}")
-        st.caption(f"{best_level} conditions (daylight hours)")
-with col3:
-    st.metric("Wave height", f"{current_wave:.1f} m")
-with col4:
-    st.metric("Swell period", f"{current_period:.1f} s")
+# Colours and texts for the big verdict card
+TILE_COLORS = {"Good": "#1b9e77", "Okay": "#d68a00", "Poor": "#6b7280"}
+VERDICTS = {"Good": "Good – go surf!", "Okay": "Okay – surfable", "Poor": "Poor – skip it"}
+if best_level == "Poor":   # if even the best hours are poor, don't call it a "best time"
+    best_line = f"No good window {day_label}"
+else:
+    best_line = f"Best time {day_label}: {best_start:%H:%M}–{best_end:%H:%M} ({best_level.lower()} conditions)"
 
-col5, col6, col7, col8 = st.columns(4)
-with col5:
-    st.metric("Swell from", degrees_to_compass(current_swell_direction))
-    st.caption(f"{current_swell_direction:.0f}° · wind waves from {degrees_to_compass(current_wave_direction)}")
-with col6:
-    st.metric("Wind", f"{current_wind:.0f} kn {degrees_to_compass(current_direction)}")
-with col7:
-    st.metric("Water temperature", f"{water_temp:.1f} °C")
-with col8:
-    st.metric("Tide", f"{tide_now:+.1f} m")
-    if tide_kind:
-        st.caption(f"{tide_trend}, next {tide_kind.lower()} tide at {tide_time:%H:%M}")
-    else:
-        st.caption(tide_trend)
+# The verdict card: one big coloured box with the answer to "should I go?".
+# st.markdown can draw plain HTML when unsafe_allow_html=True (safe here: the text is made by our own code).
+st.markdown(
+    f'<div style="background:{TILE_COLORS[rating]}; color:white; padding:1.2rem 1.6rem; border-radius:12px; margin:0.5rem 0 1rem 0;">'
+    f'<div style="font-size:0.9rem; opacity:0.9;">Right now at {spot_name}</div>'
+    f'<div style="font-size:2.4rem; font-weight:700; line-height:1.2;">{VERDICTS[rating]}</div>'
+    f'<div style="font-size:1rem; margin-top:0.3rem;">{reason[0].upper() + reason[1:]}</div>'
+    f'<div style="font-size:1.1rem; font-weight:600; margin-top:0.6rem;">{best_line}</div>'
+    f'</div>',
+    unsafe_allow_html=True)
 
-col9, col10, col11, col12 = st.columns(4)
-with col9:
-    st.metric("Wind type", current_wind_type)
-    st.caption(f"{spot_name}'s beach faces {degrees_to_compass(spot_info['faces'])}")
-with col10:
-    low, high = spot_info["swell_window"]
-    st.metric("Swell direction", "Works here" if swell_ok else "Off-angle")
-    st.caption(f"Best from {degrees_to_compass(low)} to {degrees_to_compass(high)}")
-with col11:
-    st.metric("Wave power", f"{power_now:.0f} kW/m")
-    st.caption("0.49 × height² × period")
-with col12:
-    st.metric("Your level", skill)
-    st.caption(f"{too_small:g}–{too_big:g} m is comfortable")
+# The four numbers that matter most. help="..." adds a small (?) with an explanation on hover.
+WIND_NOTES = {"Offshore": "clean, smooth waves", "Cross-shore": "neutral, a bit bumpy", "Onshore": "choppy, messy waves"}
+if current_wave < too_small:
+    size_note = f"small for {skill.lower()} level"
+elif current_wave > too_big:
+    size_note = f"big for {skill.lower()} level"
+else:
+    size_note = f"good size for {skill.lower()} level"
+
+key1, key2, key3, key4 = st.columns(4)
+with key1:
+    st.metric("Wave height", f"{current_wave:.1f} m", help="How tall the waves are. Bigger is not always better: it has to match your level.")
+    st.caption(size_note)
+with key2:
+    st.metric("Swell", f"{current_period:.1f} s {degrees_to_compass(current_swell_direction)}",
+              help="Seconds between waves, and the direction they come from. A longer period means more powerful, better organised waves.")
+    st.caption("direction fits this spot" if swell_ok else "direction is off for this spot")
+with key3:
+    st.metric("Wind", f"{current_wind:.0f} kn {degrees_to_compass(current_direction)}",
+              help="Wind speed in knots and where it blows from. Light wind, blowing from land to sea, is best.")
+    st.caption(f"{current_wind_type.lower()}: {WIND_NOTES[current_wind_type]}")
+with key4:
+    st.metric("Water temperature", f"{water_temp:.1f} °C", help="Tells you what to wear: a wetsuit is usually needed below about 22 °C.")
+
+# Secondary data hides in an expander until someone wants it
+with st.expander("More conditions: tide, wave power, wave direction"):
+    more1, more2, more3, more4 = st.columns(4)
+    with more1:
+        st.metric("Tide", f"{tide_now:+.1f} m", help="Sea level compared with the average. Plus = higher than average.")
+        if tide_kind:
+            st.caption(f"{tide_trend}, next {tide_kind.lower()} tide at {tide_time:%H:%M}")
+        else:
+            st.caption(tide_trend)
+    with more2:
+        st.metric("Wave power", f"{power_now:.0f} kW/m", help="Roughly how much energy the waves carry. Higher = punchier waves.")
+        st.caption("0.49 × height² × period")
+    with more3:
+        low, high = spot_info["swell_window"]
+        st.metric("Swell direction", "Works here" if swell_ok else "Off-angle")
+        st.caption(f"{spot_name} likes swell from {degrees_to_compass(low)} to {degrees_to_compass(high)}")
+    with more4:
+        st.metric("Wind waves from", degrees_to_compass(current_wave_direction))
+        st.caption(f"{current_wave_direction:.0f}° · swell from {current_swell_direction:.0f}°")
 
 # st.tabs puts the details into clickable tabs, so the page doesn't become one long scroll.
 tab_best, tab_waves, tab_wind, tab_tide, tab_daily, tab_all = st.tabs(
