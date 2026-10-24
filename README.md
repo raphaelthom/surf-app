@@ -46,3 +46,13 @@ It starts the app, opens it in your installed Google Chrome in the background
 and saves one PNG per tab into `screenshots/` (not committed to Git).
 `requirements-dev.txt` is separate from `requirements.txt`, so the deployed app
 doesn't install these extras.
+
+## Tests
+
+The surf logic (compass labels, rating, best time, next tide) lives in `surf_logic.py`
+and is covered by tests:
+
+```
+pip install -r requirements-dev.txt   # once
+python -m pytest
+```

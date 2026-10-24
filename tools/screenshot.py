@@ -43,7 +43,8 @@ def main():
     out = PROJECT / args.out
     out.mkdir(exist_ok=True)
     url = f"http://localhost:{args.port}"
-    size = {"width": 390, "height": 900} if args.phone else {"width": 1400, "height": 1000}
+    # a tall window, because Streamlit scrolls inside the page and a screenshot only shows what fits the window
+    size = {"width": 390, "height": 2600} if args.phone else {"width": 1400, "height": 1900}
     suffix = "_phone" if args.phone else ""
 
     # Start the Streamlit app in the background; it is stopped again at the end.

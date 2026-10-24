@@ -195,9 +195,11 @@ table = wind_df.iloc[::3]
 table["compass"] = table["wind_direction_10m"].apply(degrees_to_compass)
 
 # Swell table with compass labels, one row every 3 hours
-swell_table = marine_df.iloc[::3][["wave_height", "swell_wave_height", "swell_wave_period"]].copy()
-swell_table["swell from"] = marine_df.iloc[::3]["swell_wave_direction"].apply(degrees_to_compass)
-swell_table["waves from"] = marine_df.iloc[::3]["wave_direction"].apply(degrees_to_compass)
+swell_table = marine_df.iloc[::3][["wave_height", "swell_wave_height", "swell_wave_period"]].round(1)
+swell_table.columns = ["Wave height (m)", "Swell height (m)", "Swell period (s)"]   # readable column names
+swell_table["Swell from"] = marine_df.iloc[::3]["swell_wave_direction"].apply(degrees_to_compass)
+swell_table["Waves from"] = marine_df.iloc[::3]["wave_direction"].apply(degrees_to_compass)
+swell_table.index = swell_table.index.strftime("%a %d %b %H:%M")   # e.g. "Sat 24 Oct 15:00"
 
 # Daily summary: one row per day instead of 24 hourly rows.
 # groupby puts all rows with the same date into one group; .agg then
@@ -277,7 +279,7 @@ with tab_waves:
         st.subheader("Swell wave height (m)")
         st.plotly_chart(make_line_chart(marine_df["swell_wave_height"], now, "m"), width="stretch")
     with wave_col3:
-        st.subheader("Swell wave period (seconds)")
+        st.subheader("Swell period (s)")
         st.plotly_chart(make_line_chart(marine_df["swell_wave_period"], now, "s"), width="stretch")
     st.subheader("Swell every 3 hours")
     st.dataframe(swell_table)
