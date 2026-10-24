@@ -218,3 +218,21 @@ def best_per_day(daylight_hours, now):
         level, start, end = find_best_window(day_hours)
         days.append((date, level, start, end))
     return days
+
+# Turns the API's daily sunrise/sunset lists into a dict: {date: (sunrise, sunset)}.
+# daily looks like {"time": ["2026-10-24", ...], "sunrise": ["2026-10-24T07:41", ...], "sunset": [...]}.
+def make_sun_times(daily):
+    return {
+        pd.Timestamp(day).date(): (pd.Timestamp(rise), pd.Timestamp(set_))
+        for day, rise, set_ in zip(daily["time"], daily["sunrise"], daily["sunset"])
+    }
+
+# Keeps only the hours with daylight. An hour counts if its middle (xx:30) lies between
+# sunrise and sunset of that day. sun_times is the dict made by make_sun_times.
+def daylight_only(hours, sun_times):
+    keep = []   # one True/False per hour
+    for time in hours.index:
+        sunrise, sunset = sun_times[time.date()]
+        middle = time + pd.Timedelta(minutes=30)
+        keep.append(sunrise <= middle <= sunset)
+    return hours[keep]   # a list of True/False picks the rows marked True

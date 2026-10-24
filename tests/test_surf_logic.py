@@ -265,3 +265,22 @@ def test_best_per_day_skips_a_day_with_no_hours_left():
     hours = two_days(["Good", "Good", "Good", "Good"], ["Okay", "Okay", "Okay", "Okay"])
     days = best_per_day(hours, pd.Timestamp("2026-10-24 23:00"))
     assert len(days) == 1 and days[0][0] == pd.Timestamp("2026-10-25").date()
+
+
+# ---------- daylight ----------
+from surf_logic import make_sun_times, daylight_only
+
+DAILY = {"time": ["2026-10-24", "2026-10-25"],
+         "sunrise": ["2026-10-24T07:41", "2026-10-25T07:42"],
+         "sunset": ["2026-10-24T18:12", "2026-10-25T18:10"]}
+
+def test_make_sun_times_builds_a_dict_by_date():
+    sun = make_sun_times(DAILY)
+    assert sun[pd.Timestamp("2026-10-24").date()] == (pd.Timestamp("2026-10-24 07:41"), pd.Timestamp("2026-10-24 18:12"))
+
+def test_daylight_only_keeps_hours_whose_middle_is_in_daylight():
+    hours = pd.DataFrame({"rating": "Good"}, index=pd.date_range("2026-10-24 00:00", periods=24, freq="h"))
+    kept = daylight_only(hours, make_sun_times(DAILY))
+    # 07:00 has its middle (07:30) before sunrise (07:41), 08:00 is the first hour; 17:00 (17:30) is the last, 18:00 (18:30) is after sunset
+    assert kept.index[0] == pd.Timestamp("2026-10-24 08:00")
+    assert kept.index[-1] == pd.Timestamp("2026-10-24 17:00")

@@ -4,7 +4,7 @@ import pandas as pd
 import plotly.graph_objects as go   # Plotly: interactive charts
 
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
-from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, best_per_day, next_turning_point,
+from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, best_per_day, next_turning_point, make_sun_times, daylight_only,
                         wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS)
 
 SPOTS = {
@@ -46,6 +46,20 @@ def get_wind_data(lat, lon):
     response.raise_for_status()
     wind_data = response.json()
     return wind_data["hourly"]
+
+# Sunrise and sunset for each forecast day (local time at the spot), used to find the daylight hours.
+# Same caching as the other fetch functions.
+@st.cache_data(ttl=3600)
+def get_sun_data(lat, lon):
+    response = requests.get("https://api.open-meteo.com/v1/forecast",
+                    params={
+                    "latitude": lat,
+                    "longitude": lon,
+                    "daily": "sunrise,sunset",   # "daily" = one value per day instead of per hour
+                    "timezone": "auto",
+                    "forecast_days": 7})
+    response.raise_for_status()
+    return response.json()["daily"]
 
 # Colours for the three ratings, used in the hourly quality chart
 RATING_COLORS = {"Good": "#1b9e77", "Okay": "#e6a117", "Poor": "#9aa0a6"}
@@ -113,7 +127,7 @@ def summarize_spot(spot, rules, skill):
     rating, reason = rate_for_spot(period, wind_speed, wind.loc[now, "wind_direction_10m"],
                                    marine.loc[now, "swell_wave_direction"], marine.loc[now, "wave_height"],
                                    spot, skill, **rules)
-    daylight = rate_hours(marine, wind, spot, skill, **rules).between_time("06:00", "18:00")
+    daylight = daylight_only(rate_hours(marine, wind, spot, skill, **rules), make_sun_times(get_sun_data(lat, lon)))
     day_label, best_level, start, end = find_best_time(daylight, now)
 
     return {
@@ -187,6 +201,12 @@ wind_df = pd.DataFrame(wind_data)           # turn the dict of lists into a tabl
 wind_df["time"] = pd.to_datetime(wind_df["time"]) # converts text to date objects
 wind_df = wind_df.set_index("time") # makes that column the row labels instead of 0, 1, 2…
 
+try:
+    sun_times = make_sun_times(get_sun_data(lat, lon))   # {date: (sunrise, sunset)}
+except (requests.RequestException, KeyError) as error:
+    st.error(f"Couldn't load the sunrise and sunset times. (Details: {error!r})")
+    st.stop()
+
 # What time is it at the spot right now? Ask the clock for the current time in that timezone,
 # round down to the full hour (the forecast has one row per hour) and drop the timezone label
 # so it can be compared with the table's row labels.
@@ -222,7 +242,7 @@ daily_wind = wind_df.groupby(days)["wind_speed_10m"].agg(["min", "max", "mean"])
 
 # Rating for every single hour, then only the daylight hours
 hours = rate_hours(marine_df, wind_df, spot_name, skill, **rules)
-daylight_hours = hours.between_time("06:00", "18:00")   # hours that start between 06:00 and 18:00 local time, so daylight until 19:00
+daylight_hours = daylight_only(hours, sun_times)   # only the hours between sunrise and sunset at this spot
 
 # Best time to surf: the hours still ahead today, or tomorrow if the daylight is over
 day_label, best_level, best_start, best_end = find_best_time(daylight_hours, now)
@@ -242,7 +262,9 @@ power_series = wave_power(marine_df["wave_height"], marine_df["swell_wave_period
 power_now = power_series.loc[now]
 
 # ---------- 2. Display ----------
-st.caption(f"{spot_name} ({lat}, {lon}) · local time {now:%a %d %b, %H:%M}")
+sunrise_today, sunset_today = sun_times[now.date()]
+st.caption(f"{spot_name} ({lat}, {lon}) · local time {now:%a %d %b, %H:%M} · "
+           f"sunrise {sunrise_today:%H:%M}, sunset {sunset_today:%H:%M}")
 
 # Colours and texts for the big verdict card
 TILE_COLORS = {"Good": "#1b9e77", "Okay": "#d68a00", "Poor": "#6b7280"}
