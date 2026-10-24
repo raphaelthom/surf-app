@@ -277,3 +277,35 @@ def wetsuit_for(celsius):
         return "4/3 wetsuit"
     else:
         return "thick wetsuit (5/4) with boots, maybe gloves"
+
+# ---------- trends and warnings ----------
+# Is the swell getting bigger or smaller in the next few hours? It compares the swell height now
+# with the height `hours` later: a change of more than 10% counts as building or dropping.
+# Returns (trend, change in percent). heights is a column with one value per hour.
+def swell_trend(heights, now, hours=6):
+    later = now + pd.Timedelta(hours=hours)
+    ahead = heights[(heights.index >= now) & (heights.index <= later)]   # the hours from now until `later`
+    if len(ahead) < 2 or ahead.iloc[0] == 0:
+        return "steady", 0.0   # not enough data (end of the forecast), so say nothing dramatic
+    change = (ahead.iloc[-1] - ahead.iloc[0]) / ahead.iloc[0] * 100
+    if change > 10:
+        return "building", change
+    elif change < -10:
+        return "dropping", change
+    return "steady", change
+
+# Why does the best window end? If the wind turns onshore, or picks up by 4 knots or more,
+# right at the end of the window, this returns a warning text, otherwise None.
+# `end` is the first hour after the window; wind_df has the columns wind_speed_10m and wind_direction_10m.
+def wind_warning(wind_df, spot, end):
+    before_time = end - pd.Timedelta(hours=1)
+    if end not in wind_df.index or before_time not in wind_df.index:
+        return None
+    faces = SPOT_INFO[spot]["faces"]
+    before_type = wind_type(wind_df.loc[before_time, "wind_direction_10m"], faces)
+    after_type = wind_type(wind_df.loc[end, "wind_direction_10m"], faces)
+    if after_type == "Onshore" and before_type != "Onshore":
+        return f"The wind turns onshore around {end:%H:%M}, so plan to be out of the water by then."
+    if wind_df.loc[end, "wind_speed_10m"] - wind_df.loc[before_time, "wind_speed_10m"] >= 4:
+        return f"The wind picks up around {end:%H:%M}, so the surface gets bumpier after that."
+    return None

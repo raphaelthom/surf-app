@@ -337,3 +337,48 @@ from surf_logic import wetsuit_for
 ])
 def test_wetsuit_for(celsius, expected):
     assert expected in wetsuit_for(celsius)
+
+
+# ---------- swell_trend and wind_warning ----------
+from surf_logic import swell_trend, wind_warning
+
+def heights(values):
+    return pd.Series(values, index=pd.date_range("2026-10-24 00:00", periods=len(values), freq="h"))
+
+@pytest.mark.parametrize("values, expected", [
+    ([1.0, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5, 1.6], "building"),    # 1.0 -> 1.5 after 6 h = +50%
+    ([2.0, 1.9, 1.8, 1.7, 1.6, 1.5, 1.4, 1.3], "dropping"),
+    ([1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.05, 1.0], "steady"),
+])
+def test_swell_trend(values, expected):
+    assert swell_trend(heights(values), pd.Timestamp("2026-10-24 00:00"))[0] == expected
+
+def test_swell_trend_only_looks_forward_and_six_hours_ahead():
+    values = [5.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 9.0]   # the 5.0 is in the past, the 9.0 is 7 h ahead
+    assert swell_trend(heights(values), pd.Timestamp("2026-10-24 01:00"))[0] == "steady"
+
+def test_swell_trend_at_the_end_of_the_forecast_is_steady():
+    assert swell_trend(heights([1.0]), pd.Timestamp("2026-10-24 00:00")) == ("steady", 0.0)
+
+# Taghazout: the beach faces west (280°): wind from 220-340° is onshore, wind from 40-160° is offshore
+def wind_table(directions, speeds=None):
+    speeds = speeds or [5] * len(directions)
+    return pd.DataFrame({"wind_direction_10m": directions, "wind_speed_10m": speeds},
+                        index=pd.date_range("2026-10-24 08:00", periods=len(directions), freq="h"))
+
+def test_wind_warning_when_the_wind_turns_onshore_at_the_end_of_the_window():
+    wind = wind_table([90, 90, 270])   # offshore, offshore, onshore at 10:00
+    assert "onshore around 10:00" in wind_warning(wind, "Taghazout", pd.Timestamp("2026-10-24 10:00"))
+
+def test_wind_warning_when_the_wind_picks_up():
+    wind = wind_table([90, 90, 90], [5, 6, 11])
+    assert "picks up around 10:00" in wind_warning(wind, "Taghazout", pd.Timestamp("2026-10-24 10:00"))
+
+def test_wind_warning_is_none_when_nothing_changes():
+    assert wind_warning(wind_table([90, 90, 90]), "Taghazout", pd.Timestamp("2026-10-24 10:00")) is None
+
+def test_wind_warning_is_none_when_the_wind_was_onshore_already():
+    assert wind_warning(wind_table([270, 270, 270]), "Taghazout", pd.Timestamp("2026-10-24 10:00")) is None
+
+def test_wind_warning_is_none_when_the_end_is_outside_the_data():
+    assert wind_warning(wind_table([90, 90]), "Taghazout", pd.Timestamp("2026-10-25 10:00")) is None

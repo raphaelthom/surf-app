@@ -7,7 +7,7 @@ import plotly.graph_objects as go   # Plotly: interactive charts
 
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
 from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, best_per_day, next_turning_point, make_sun_times, daylight_only,
-                        HEIGHT_FACTORS, WIND_FACTORS, convert_temp, wind_text, week_score, best_day, wetsuit_for,
+                        HEIGHT_FACTORS, WIND_FACTORS, convert_temp, wind_text, week_score, best_day, wetsuit_for, swell_trend, wind_warning,
                         wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS)
 
 SPOTS = {
@@ -291,6 +291,9 @@ daylight_hours = daylight_only(hours, sun_times)   # only the hours between sunr
 # Best time to surf: the hours still ahead today, or tomorrow if the daylight is over
 day_label, best_level, best_start, best_end = find_best_time(daylight_hours, now)
 
+# Is the swell building or dropping over the next 6 hours?
+trend, trend_change = swell_trend(marine_df["swell_wave_height"], now)
+
 # Tide and water temperature right now
 tide = marine_df["sea_level_height_msl"]
 tide_now = tide.loc[now]
@@ -318,6 +321,13 @@ if best_level == "Poor":   # if even the best hours are poor, don't call it a "b
 else:
     best_line = f"Best time {day_label}: {best_start:%H:%M}–{best_end:%H:%M} ({best_level.lower()} conditions)"
 
+# If the best window ends because of the wind, add a warning line to the card
+warning_line = ""
+if best_level != "Poor":
+    warning = wind_warning(wind_df, spot_name, best_end)
+    if warning:
+        warning_line = f'<div style="font-size:0.95rem; margin-top:0.5rem;">⚠️ {warning}</div>'
+
 # The verdict card: one big coloured box with the answer to "should I go?".
 # st.markdown can draw plain HTML when unsafe_allow_html=True (safe here: the text is made by our own code).
 st.markdown(
@@ -326,6 +336,7 @@ st.markdown(
     f'<div style="font-size:2.4rem; font-weight:700; line-height:1.2;">{VERDICTS[rating]}</div>'
     f'<div style="font-size:1rem; margin-top:0.3rem;">{reason[0].upper() + reason[1:]}</div>'
     f'<div style="font-size:1.1rem; font-weight:600; margin-top:0.6rem;">{best_line}</div>'
+    f'{warning_line}'
     f'</div>',
     unsafe_allow_html=True)
 
@@ -346,6 +357,8 @@ with key2:
     st.metric("Swell", f"{current_period:.1f} s {degrees_to_compass(current_swell_direction)}",
               help="Seconds between waves, and the direction they come from. A longer period means more powerful, better organised waves.")
     st.caption("direction fits this spot" if swell_ok else "direction is off for this spot")
+    TREND_ICONS = {"building": "📈", "dropping": "📉", "steady": "➡️"}
+    st.caption(f"{TREND_ICONS[trend]} {trend}" + ("" if trend == "steady" else f" ({trend_change:+.0f}% in 6 h)"))
 with key3:
     st.metric("Wind", f"{current_wind * w_factor:.0f} {w_unit} {degrees_to_compass(current_direction)}",
               help="Wind speed and where it blows from. Light wind, blowing from land to sea, is best.")
