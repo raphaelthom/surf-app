@@ -326,3 +326,14 @@ def test_best_day_prefers_rating_then_longer_window_then_earlier_day():
     assert best_day(days)[0] == pd.Timestamp("2026-10-25").date()   # a Good hour beats a longer Okay block
     same = best_per_day(two_days(["Okay"] * 4, ["Okay"] * 4), pd.Timestamp("2026-10-24 00:00"))
     assert best_day(same)[0] == pd.Timestamp("2026-10-24").date()   # a full tie goes to the earlier day
+
+
+# ---------- wetsuit ----------
+from surf_logic import wetsuit_for
+
+@pytest.mark.parametrize("celsius, expected", [
+    (30, "boardshorts"), (24.1, "boardshorts"), (24, "thin"), (20, "thin"),
+    (19.9, "4/3"), (16, "4/3"), (15.9, "thick"), (8, "thick"),
+])
+def test_wetsuit_for(celsius, expected):
+    assert expected in wetsuit_for(celsius)

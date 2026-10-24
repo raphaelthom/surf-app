@@ -7,7 +7,7 @@ import plotly.graph_objects as go   # Plotly: interactive charts
 
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
 from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, best_per_day, next_turning_point, make_sun_times, daylight_only,
-                        HEIGHT_FACTORS, WIND_FACTORS, convert_temp, wind_text, week_score, best_day,
+                        HEIGHT_FACTORS, WIND_FACTORS, convert_temp, wind_text, week_score, best_day, wetsuit_for,
                         wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS)
 
 SPOTS = {
@@ -336,6 +336,7 @@ with key3:
 with key4:
     st.metric("Water temperature", f"{convert_temp(water_temp, t_unit):.1f} {t_unit}",
               help=f"Tells you what to wear: a wetsuit is usually needed below about {convert_temp(22, t_unit):.0f} {t_unit}.")
+    st.caption(f"Wear: {wetsuit_for(water_temp)}")   # water_temp is always in °C here, whatever unit is shown
 
 # "This week at a glance": one coloured tile per day with that day's best rating and time window.
 # best_per_day returns a list of (date, rating, start, end); one column per day.

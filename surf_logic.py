@@ -266,3 +266,14 @@ def week_score(daylight_hours, now):
 # then the longer window, and on a tie the earlier day (max keeps the first of equals).
 def best_day(days):
     return max(days, key=lambda day: (LEVELS.index(day[1]), day[3] - day[2]))
+
+# What to wear for a given water temperature in °C (the same thresholds as in the guide tab).
+def wetsuit_for(celsius):
+    if celsius > 24:
+        return "boardshorts are fine"
+    elif celsius >= 20:
+        return "thin wetsuit (shorty or 3/2)"
+    elif celsius >= 16:
+        return "4/3 wetsuit"
+    else:
+        return "thick wetsuit (5/4) with boots, maybe gloves"
