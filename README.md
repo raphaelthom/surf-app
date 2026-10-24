@@ -29,3 +29,20 @@ streamlit run app.py
   point slightly offshore. The API snaps them to its own grid (a few km wide),
   so the forecast is regional, not exact for one break.
 - Wind direction is in degrees, where 0 means wind coming *from* the north.
+
+## Development: screenshots of the app
+
+To check how the app looks without opening a browser by hand (also used when Claude
+helps with the layout), install the development extras once and run the script:
+
+```
+pip install -r requirements-dev.txt
+python tools/screenshot.py                 # every tab, first spot, desktop size
+python tools/screenshot.py --spot Lombok   # another spot
+python tools/screenshot.py --phone         # phone-sized window
+```
+
+It starts the app, opens it in your installed Google Chrome in the background
+and saves one PNG per tab into `screenshots/` (not committed to Git).
+`requirements-dev.txt` is separate from `requirements.txt`, so the deployed app
+doesn't install these extras.

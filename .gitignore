@@ -3,3 +3,6 @@
 
 # Python's compiled cache files
 __pycache__/
+
+# Screenshots made by tools/screenshot.py
+screenshots/
