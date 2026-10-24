@@ -76,11 +76,19 @@ def rate_conditions(swell_wave_period, wind_speed_10m):
 # Streamlit re-runs this whole file from top to bottom
 # every time the user interacts with the page.
 
+# layout="wide" uses the full browser width instead of a narrow column.
+# (set_page_config has to be the first Streamlit command that draws something.)
+st.set_page_config(page_title="Surf Forecast", page_icon="🏄", layout="wide")
+
 st.title("🏄 Surf Forecast")
 
 spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()))
 coords = SPOTS[spot_name]
 lat, lon = coords
+
+# ---------- 1. Load and prepare all the data ----------
+# The page needs every table before it can show anything,
+# so all loading happens first and the display comes afterwards.
 
 # try/except: Python tries the code under "try". If the network or API fails,
 # it jumps to "except" and shows a message instead of crashing with a red traceback.
@@ -94,22 +102,12 @@ marine_df = pd.DataFrame(marine_data)           # turn the dict of lists into a 
 marine_df["time"] = pd.to_datetime(marine_df["time"]) # converts text to date objects
 marine_df = marine_df.set_index("time") # makes that column the row labels instead of 0, 1, 2…
 
-st.write(spot_name, coords)
-st.subheader("Wave height (m)")
-st.line_chart(marine_df["wave_height"])
-st.subheader("Swell wave height (m)")
-st.line_chart(marine_df["swell_wave_height"])
-st.subheader("Swell wave period (seconds)")
-st.line_chart(marine_df["swell_wave_period"])
-st.dataframe(marine_df)                   # show the table
-
-
 try:
     wind_data = get_wind_data(lat, lon)   # catch what the function returns; returns a dict of lists
 except (requests.RequestException, KeyError) as error:
     st.error(f"Couldn't load the wind data. (Details: {error!r})")
     st.stop()
-    
+
 wind_df = pd.DataFrame(wind_data)           # turn the dict of lists into a table; made a table with one column per key
 wind_df["time"] = pd.to_datetime(wind_df["time"]) # converts text to date objects
 wind_df = wind_df.set_index("time") # makes that column the row labels instead of 0, 1, 2…
@@ -118,31 +116,75 @@ wind_df = wind_df.set_index("time") # makes that column the row labels instead o
 # round down to the full hour (the forecast has one row per hour) and drop the timezone label
 # so it can be compared with the table's row labels.
 now = pd.Timestamp.now(tz=timezone).floor("h").tz_localize(None)
-st.write(f"Local time at {spot_name}: {now:%a %d %b, %H:%M}")
 
 current_period = marine_df.loc[now, "swell_wave_period"]   # .loc picks the row by its time label
+current_wave = marine_df.loc[now, "wave_height"]
 current_wind = wind_df.loc[now, "wind_speed_10m"]
+current_direction = wind_df.loc[now, "wind_direction_10m"]
 rating, reason = rate_conditions(current_period, current_wind)  # unpack the two returned values
-st.write(f"Conditions right now: {rating} – {reason}")
 
-st.subheader("Wind speed (knots)")
-st.line_chart(wind_df["wind_speed_10m"])
-st.subheader("Wind direction (degrees)")
-st.line_chart(wind_df["wind_direction_10m"])
-
+# Wind table with a compass label, one row every 3 hours
 table = wind_df.iloc[::3]
 table["compass"] = table["wind_direction_10m"].apply(degrees_to_compass)
-st.dataframe(table)
 
 # Daily summary: one row per day instead of 24 hourly rows.
 # groupby puts all rows with the same date into one group; .agg then
 # calculates the smallest (min), largest (max) and average (mean) value of each group.
-st.subheader("Daily summary")
 days = marine_df.index.date   # the calendar date of every hourly row
 daily_waves = marine_df.groupby(days)["wave_height"].agg(["min", "max", "mean"]).round(1)
 daily_wind = wind_df.groupby(days)["wind_speed_10m"].agg(["min", "max", "mean"]).round(1)
 
-st.write("Wave height (m)")
-st.dataframe(daily_waves)
-st.write("Wind speed (knots)")
-st.dataframe(daily_wind)
+# ---------- 2. Display ----------
+st.caption(f"{spot_name} ({lat}, {lon}) · local time {now:%a %d %b, %H:%M}")
+
+# Top row: the answer at a glance. st.columns(4) makes four equal columns side by side.
+# "with col1:" means "everything indented below goes into column 1".
+col1, col2, col3, col4 = st.columns(4)
+with col1:
+    st.metric("Conditions right now", rating)   # st.metric = a big number/label card
+    st.caption(reason)
+with col2:
+    st.metric("Wave height", f"{current_wave:.1f} m")
+with col3:
+    st.metric("Swell period", f"{current_period:.1f} s")
+with col4:
+    st.metric("Wind", f"{current_wind:.0f} kn {degrees_to_compass(current_direction)}")
+
+# st.tabs puts the details into clickable tabs, so the page doesn't become one long scroll.
+tab_waves, tab_wind, tab_daily = st.tabs(["Waves", "Wind", "Daily summary"])
+
+with tab_waves:
+    wave_col1, wave_col2, wave_col3 = st.columns(3)
+    with wave_col1:
+        st.subheader("Wave height (m)")
+        st.line_chart(marine_df["wave_height"])
+    with wave_col2:
+        st.subheader("Swell wave height (m)")
+        st.line_chart(marine_df["swell_wave_height"])
+    with wave_col3:
+        st.subheader("Swell wave period (seconds)")
+        st.line_chart(marine_df["swell_wave_period"])
+
+with tab_wind:
+    wind_col1, wind_col2 = st.columns(2)
+    with wind_col1:
+        st.subheader("Wind speed (knots)")
+        st.line_chart(wind_df["wind_speed_10m"])
+    with wind_col2:
+        st.subheader("Wind direction (degrees)")
+        st.line_chart(wind_df["wind_direction_10m"])
+    st.subheader("Wind every 3 hours")
+    st.dataframe(table)
+
+with tab_daily:
+    daily_col1, daily_col2 = st.columns(2)
+    with daily_col1:
+        st.subheader("Wave height (m)")
+        st.dataframe(daily_waves)
+    with daily_col2:
+        st.subheader("Wind speed (knots)")
+        st.dataframe(daily_wind)
+
+# An expander hides its content until the user clicks it.
+with st.expander("Raw hourly data"):
+    st.dataframe(marine_df)
