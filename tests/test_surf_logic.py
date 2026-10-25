@@ -382,3 +382,32 @@ def test_wind_warning_is_none_when_the_wind_was_onshore_already():
 
 def test_wind_warning_is_none_when_the_end_is_outside_the_data():
     assert wind_warning(wind_table([90, 90]), "Taghazout", pd.Timestamp("2026-10-25 10:00")) is None
+
+
+# ---------- day_range and range_text ----------
+from surf_logic import day_range, range_text
+
+
+def test_day_range_uses_the_daylight_hours_of_one_day():
+    times = pd.date_range("2026-10-24 08:00", periods=48, freq="h")
+    daylight = pd.DataFrame({"rating": "Good"}, index=times)
+    heights = pd.Series(range(48), index=times, dtype=float)   # 0, 1, 2, ... one value per hour
+    now = pd.Timestamp("2026-10-24 10:00")
+    assert day_range(heights, daylight, now, now.date()) == (2, 15)   # today: from 10:00 on, until 23:00
+    assert day_range(heights, daylight, now, (now + pd.Timedelta(days=1)).date()) == (16, 39)
+
+
+def test_day_range_is_none_when_no_hours_are_left():
+    times = pd.date_range("2026-10-24 08:00", periods=3, freq="h")
+    daylight = pd.DataFrame({"rating": "Good"}, index=times)
+    heights = pd.Series([1.0, 2.0, 3.0], index=times)
+    assert day_range(heights, daylight, pd.Timestamp("2026-10-24 18:00"), pd.Timestamp("2026-10-24").date()) is None
+
+
+@pytest.mark.parametrize("low, high, decimals, expected", [
+    (0.8, 1.2, 1, "0.8–1.2 m"),
+    (1.21, 1.24, 1, "1.2 m"),        # both ends look the same after rounding, so only one number
+    (9.6, 17.8, 0, "10–18 m"),
+])
+def test_range_text(low, high, decimals, expected):
+    assert range_text(low, high, "m", decimals) == expected

@@ -5,6 +5,7 @@ Usage (from the project folder, with the virtual environment active):
     python tools/screenshot.py                   # all tabs, first spot, desktop size
     python tools/screenshot.py --spot Lombok     # a different spot
     python tools/screenshot.py --phone           # phone-sized window
+    python tools/screenshot.py --windsurf        # the windsurf mode instead of surf
 
 It starts the app itself, opens it in your installed Google Chrome (in the
 background, with a temporary profile) and saves PNGs into the screenshots/ folder.
@@ -37,6 +38,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--spot", help="surf spot to select, e.g. Lombok (default: the first one)")
     parser.add_argument("--phone", action="store_true", help="use a phone-sized window")
+    parser.add_argument("--windsurf", action="store_true", help="take the screenshots in windsurf mode")
     parser.add_argument("--port", type=int, default=8602)
     parser.add_argument("--out", default="screenshots", help="output folder (default: screenshots)")
     args = parser.parse_args()
@@ -47,6 +49,7 @@ def main():
     # a tall window, because Streamlit scrolls inside the page and a screenshot only shows what fits the window
     size = {"width": 390, "height": 2600} if args.phone else {"width": 1400, "height": 1900}
     suffix = "_phone" if args.phone else ""
+    prefix = "windsurf_" if args.windsurf else ""
 
     # Start the Streamlit app in the background; it is stopped again at the end.
     server = subprocess.Popen(
@@ -59,7 +62,7 @@ def main():
         with sync_playwright() as p:
             browser = p.chromium.launch(channel="chrome", headless=True)   # your installed Chrome
             page = browser.new_page(viewport=size)
-            page.goto(url)
+            page.goto(url + "/?mode=Windsurf" if args.windsurf else url)   # the mode is picked through the page address
             page.wait_for_selector("text=Right now at", timeout=60000)
 
             if args.spot:
@@ -70,15 +73,16 @@ def main():
 
             spot = (args.spot or "default").lower().replace(" ", "-")
             tab_names = page.get_by_role("tab").all_text_contents()   # read the tabs from the page itself
-            # The first three are the views (spot, compare, guide), the rest are the chart tabs inside the
-            # spot view. The chart tabs are only visible while the spot view is open, so click them before
-            # the other two views.
-            tab_names = tab_names[:1] + tab_names[3:] + tab_names[1:3]
+            # The first ones are the views (surf: spot, compare, guide; windsurf: spot, guide), the rest are the
+            # chart tabs inside the spot view. The chart tabs are only visible while the spot view is open,
+            # so click them before the other views.
+            views = 2 if args.windsurf else 3
+            tab_names = tab_names[:1] + tab_names[views:] + tab_names[1:views]
             for name in tab_names:
-                page.get_by_role("tab", name=name).click()
+                page.get_by_role("tab", name=name, exact=True).click()   # exact: "Wind" must not also match "Windsurf guide"
                 page.wait_for_timeout(2500)                           # let the charts draw
                 slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")   # letters and digits only, no emoji or quotes
-                path = out / f"{spot}_{slug}{suffix}.png"
+                path = out / f"{prefix}{spot}_{slug}{suffix}.png"
                 page.screenshot(path=str(path), full_page=True)
                 print("saved", path.relative_to(PROJECT))
             browser.close()

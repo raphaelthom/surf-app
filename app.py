@@ -1,14 +1,19 @@
 import streamlit as st
 import requests 
-from requests.adapters import HTTPAdapter
-from urllib3.util.retry import Retry
 import pandas as pd
-import plotly.graph_objects as go   # Plotly: interactive charts
+
+# Loading the data from the API and drawing the charts moved into their own files,
+# because the windsurf page needs them too.
+from forecast_data import get_marine_data, get_wind_data, get_sun_data, get_load_time, to_table
+from charts import make_line_chart, make_wind_chart, make_quality_chart
 
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
 from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, best_per_day, next_turning_point, make_sun_times, daylight_only,
                         HEIGHT_FACTORS, WIND_FACTORS, convert_temp, wind_text, week_score, best_day, wetsuit_for, swell_trend, wind_warning,
-                        wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS)
+                        wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS, day_range, range_text)
+
+# The windsurf page: everything it draws is in windsurf_view.py (its rating rules are in windsurf_logic.py)
+from windsurf_view import show_windsurf
 
 SPOTS = {
     "Lisbon": (38.65, -9.40),
@@ -18,118 +23,13 @@ SPOTS = {
     "Taghazout": (30.55, -9.80)
 }
 
-# The free API sometimes stalls for a request. A session with a retry rule asks again (up to 2 more times,
-# with a short pause in between) instead of failing right away. If it still fails, the error is caught below.
-session = requests.Session()
-session.mount("https://", HTTPAdapter(max_retries=Retry(total=2, backoff_factor=0.5, status_forcelist=[429, 500, 502, 503, 504])))
+# The windsurf spots are their own list (a windsurf spot is not the same as a surf spot)
+WINDSURF_SPOTS = {
+    "La Linière (Noirmoutier)": (47.025, -2.283),
+}
 
-# st.cache_data remembers the result for each input (lat, lon), so picking
-# the same spot again doesn't call the API again. ttl=3600: forget after 1 hour.
-@st.cache_data(ttl=3600)
-
-def get_marine_data(lat, lon):
-    response = session.get("https://marine-api.open-meteo.com/v1/marine", 
-                    params={
-                    "latitude": lat, 
-                    "longitude": lon, 
-                    "hourly": "wave_height,swell_wave_height,swell_wave_period,sea_level_height_msl,sea_surface_temperature,wave_direction,swell_wave_direction", 
-                    "timezone": "auto",   # times in the spot's local time instead of GMT
-                    "forecast_days": 7},
-                    timeout=(3, 5))   # give up connecting after 3 s and waiting for the answer after 5 s (then the session retries)
-    response.raise_for_status()  # raises an error if the API replied with an error code
-    marine_data = response.json()
-    # return two values: the data and the spot's timezone name, e.g. "Europe/Lisbon"
-    return marine_data["hourly"], marine_data["timezone"]
-
-@st.cache_data(ttl=3600)  # same caching as above
-
-def get_wind_data(lat, lon):
-    response = session.get("https://api.open-meteo.com/v1/forecast", 
-                    params={
-                    "latitude": lat, 
-                    "longitude": lon, 
-                    "hourly": "wind_speed_10m,wind_direction_10m",
-                    "wind_speed_unit": "kn",   # knots instead of km/h
-                    "timezone": "auto",        # local time, same as the marine data
-                    "forecast_days": 7},
-                    timeout=(3, 5))   # give up connecting after 3 s and waiting for the answer after 5 s (then the session retries)
-    response.raise_for_status()
-    wind_data = response.json()
-    return wind_data["hourly"]
-
-# When was this spot's data loaded? The function just returns the current time, and because it is cached
-# with the same one-hour limit as the fetch functions, the time stays the same until the data is fetched again.
-@st.cache_data(ttl=3600)
-def get_load_time(lat, lon):
-    return pd.Timestamp.now(tz="UTC")
-
-# Sunrise and sunset for each forecast day (local time at the spot), used to find the daylight hours.
-# Same caching as the other fetch functions.
-@st.cache_data(ttl=3600)
-def get_sun_data(lat, lon):
-    response = session.get("https://api.open-meteo.com/v1/forecast",
-                    params={
-                    "latitude": lat,
-                    "longitude": lon,
-                    "daily": "sunrise,sunset",   # "daily" = one value per day instead of per hour
-                    "timezone": "auto",
-                    "forecast_days": 7},
-                    timeout=(3, 5))   # give up connecting after 3 s and waiting for the answer after 5 s (then the session retries)
-    response.raise_for_status()
-    return response.json()["daily"]
-
-# Colours for the three ratings, used in the hourly quality chart
-RATING_COLORS = {"Good": "#1b9e77", "Okay": "#e6a117", "Poor": "#9aa0a6"}
 RATING_ICONS = {"Good": "🟢", "Okay": "🟡", "Poor": "⚪"}   # for the "All spots" table
 
-# A Plotly line chart for one column, with a dashed vertical line at "now".
-def make_line_chart(series, now, unit):
-    fig = go.Figure(go.Scatter(
-        x=series.index, y=series.values, mode="lines",
-        hovertemplate="%{x|%a %H:%M}<br>%{y:.1f} " + unit + "<extra></extra>",
-    ))
-    fig.add_shape(type="line", x0=now, x1=now, y0=0, y1=1, yref="paper",
-                  line=dict(dash="dash", width=1))   # yref="paper" = from the bottom (0) to the top (1) of the chart
-    fig.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0), yaxis_title=unit, showlegend=False)
-    return fig
-
-# Wind chart: speed as a line, plus an arrow every 3 hours showing where the wind blows TO.
-# The data gives the direction the wind comes FROM, so the arrow is turned by 180 degrees.
-# factor and unit convert the speed from knots to what the user picked (e.g. 1.852 and "km/h").
-def make_wind_chart(wind_df, now, factor, unit):
-    fig = make_line_chart(wind_df["wind_speed_10m"] * factor, now, unit)
-    every_3h = wind_df.iloc[::3]
-    fig.add_trace(go.Scatter(
-        x=every_3h.index, y=every_3h["wind_speed_10m"] * factor, mode="markers",
-        marker=dict(symbol="arrow", size=18, color="#d95f02",   # big and orange so the arrows stand out from the line
-                    angle=(every_3h["wind_direction_10m"] + 180) % 360, angleref="up"),
-        text=every_3h["wind_direction_10m"].apply(degrees_to_compass),
-        hovertemplate="%{x|%a %H:%M}<br>%{y:.0f} " + unit + " from %{text}<extra></extra>",
-    ))
-    return fig
-
-# One bar per daylight hour, coloured by rating. A higher bar means better conditions.
-def make_quality_chart(hours, now, wind_factor, wind_unit):
-    heights = {"Poor": 1, "Okay": 2, "Good": 3}
-    fig = go.Figure()
-    for level, color in RATING_COLORS.items():
-        part = hours[hours["rating"] == level]
-        fig.add_trace(go.Bar(
-            x=part.index, y=[heights[level]] * len(part), name=level, marker_color=color,
-            customdata=part[["period", "wind"]] * [1, wind_factor],   # multiplies only the wind column
-            hovertemplate="%{x|%a %H:%M}<br>" + level + ": %{customdata[0]:.1f} s swell, %{customdata[1]:.0f} " + wind_unit + " wind<extra></extra>",
-        ))
-    fig.add_shape(type="line", x0=now, x1=now, y0=0, y1=1, yref="paper", line=dict(dash="dash", width=1))
-    fig.update_layout(height=300, margin=dict(l=0, r=0, t=10, b=0), yaxis=dict(visible=False),
-                      bargap=0.1, legend=dict(orientation="h", y=1.1))
-    return fig
-
-# Turns the dict of lists from the API into a table with the time as row labels
-# (the same steps as in the main part below, packed into one function).
-def to_table(hourly):
-    df = pd.DataFrame(hourly)
-    df["time"] = pd.to_datetime(df["time"])
-    return df.set_index("time")
 
 # One row of the "All spots" table: loads a spot's data (cached, so spots that were loaded
 # before are instant) and picks out the current values, the rating and the best time.
@@ -170,32 +70,57 @@ def summarize_spot(spot, rules, skill, height_unit, wind_unit):
 
 # layout="wide" uses the full browser width instead of a narrow column.
 # (set_page_config has to be the first Streamlit command that draws something.)
-st.set_page_config(page_title="Surf Forecast", page_icon="🏄", layout="wide")
-
-st.title("🏄 Surf Forecast")
+st.set_page_config(page_title="Surf & Windsurf Forecast", page_icon="🏄", layout="wide")
 
 # Remember the choices in the page address (e.g. ?spot=Lombok&level=Beginner), so a bookmark or a shared link
 # opens the same setup. Streamlit keeps each widget's value in st.session_state under its key.
 # On the first run of a visit that value is empty, so it is filled from the address if the address has a valid one.
 st.session_state.setdefault("level", "Intermediate")   # the default surf level
+st.session_state.setdefault("mode", "Surf")            # "Surf" or "Windsurf"
+st.session_state.setdefault("weight", 75)              # the default weight in kg, for the windsurf sail size
 choices = {   # key of the widget: its allowed values
-    "spot": list(SPOTS), "level": list(SKILL_LEVELS), "height": list(HEIGHT_FACTORS),
-    "wind": list(WIND_FACTORS), "temp": ["°C", "°F"],
+    "mode": ["Surf", "Windsurf"], "spot": list(SPOTS), "wspot": list(WINDSURF_SPOTS), "level": list(SKILL_LEVELS),
+    "height": list(HEIGHT_FACTORS), "wind": list(WIND_FACTORS), "temp": ["°C", "°F"],
 }
 for key, options in choices.items():
     if st.query_params.get(key) in options and key not in st.session_state.get("restored", set()):
         st.session_state[key] = st.query_params[key]
 st.session_state["restored"] = set(choices)   # only restore once per visit, so later clicks win
 
-# Two dropdowns side by side: [2, 1] makes the first column twice as wide as the second
-pick_col1, pick_col2 = st.columns([2, 1])
-with pick_col1:
-    spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()), key="spot")
-with pick_col2:
-    skill = st.selectbox("Your surf level", list(SKILL_LEVELS.keys()), key="level")
-too_small, too_big = SKILL_LEVELS[skill]   # the wave height range that is comfortable at your level
-coords = SPOTS[spot_name]
-lat, lon = coords
+# Streamlit forgets a widget's value when the widget is not drawn in a run. The surf spot is not drawn in
+# windsurf mode (and the other way round), so copying each value onto itself keeps it until you switch back.
+for key in ["spot", "wspot", "weight"]:
+    if key in st.session_state:
+        st.session_state[key] = st.session_state[key]
+
+# Which mode is on? The radio below stores its value under the key "mode". At the start of a run that value
+# is already there (restored from the address or from your last click), so the title can use it before the radio is drawn.
+st.title("🏄 Surf Forecast" if st.session_state["mode"] == "Surf" else "🌬️ Windsurf Forecast")
+
+# The mode switch: one click swaps the whole dashboard. format_func only changes the label that is shown,
+# the value stays "Surf" or "Windsurf" (which keeps the page address short).
+mode = st.radio("Mode", ["Surf", "Windsurf"], horizontal=True, key="mode", label_visibility="collapsed",
+                format_func=lambda m: {"Surf": "🏄 Surf", "Windsurf": "🌬️ Windsurf"}[m])
+
+# Dropdowns side by side: [2, 1] makes the first column twice as wide as the second
+if mode == "Surf":
+    pick_col1, pick_col2 = st.columns([2, 1])
+    with pick_col1:
+        spot_name = st.selectbox("Choose a surf spot", list(SPOTS.keys()), key="spot")
+    with pick_col2:
+        skill = st.selectbox("Your surf level", list(SKILL_LEVELS.keys()), key="level")
+    too_small, too_big = SKILL_LEVELS[skill]   # the wave height range that is comfortable at your level
+    coords = SPOTS[spot_name]
+    lat, lon = coords
+else:
+    # Windsurf mode: the spot, your level (the same three levels) and your weight, which decides the sail size
+    pick_col1, pick_col2, pick_col3 = st.columns([2, 1, 1])
+    with pick_col1:
+        windsurf_spot = st.selectbox("Choose a windsurf spot", list(WINDSURF_SPOTS.keys()), key="wspot")
+    with pick_col2:
+        windsurf_level = st.selectbox("Your windsurf level", list(SKILL_LEVELS.keys()), key="level")
+    with pick_col3:
+        weight = st.number_input("Your weight (kg)", min_value=40, max_value=150, step=1, key="weight")
 
 # A short description for the "About" section of the spot view. The forecast point is a spot in the water near the named place.
 SPOT_NOTES = {
@@ -220,24 +145,35 @@ with st.sidebar:
     h_unit = st.radio("Wave height", list(HEIGHT_FACTORS), horizontal=True, key="height")
     w_unit = st.radio("Wind speed", list(WIND_FACTORS), horizontal=True, key="wind")
     t_unit = st.radio("Temperature", ["°C", "°F"], horizontal=True, key="temp")
-    with st.expander("Advanced: rating limits"):
-        good_period = st.slider("Good: swell period at least (s)", 6, 16, 10)   # (label, min, max, start value)
-        good_wind = st.slider("Good: wind at most (knots)", 0, 25, 10)   # the limits are always in knots
-        st.caption(f"Okay: swell period at least {good_period - 2} s and wind up to {good_wind + 5} knots. "
-                   "Everything else is Poor.")
-# A dictionary with the four limits. Writing **rules in a function call hands over every entry
-# as a separate argument, like good_period=..., good_wind=..., okay_period=..., okay_wind=...
-rules = dict(good_period=good_period, good_wind=good_wind, okay_period=good_period - 2, okay_wind=good_wind + 5)
+    if mode == "Surf":   # these limits are about swell, so they only belong to the surf mode
+        with st.expander("Advanced: rating limits"):
+            good_period = st.slider("Good: swell period at least (s)", 6, 16, 10)   # (label, min, max, start value)
+            good_wind = st.slider("Good: wind at most (knots)", 0, 25, 10)   # the limits are always in knots
+            st.caption(f"Okay: swell period at least {good_period - 2} s and wind up to {good_wind + 5} knots. "
+                       "Everything else is Poor.")
 # Write the choices into the page address (after all widgets exist, so these are the final values).
 # Only choices that differ from the defaults are written, so the default view keeps a clean address
 # and a link only carries what you changed.
-defaults = {"spot": list(SPOTS)[0], "level": "Intermediate", "height": "m", "wind": "kn", "temp": "°C"}
-current = {"spot": spot_name, "level": skill, "height": h_unit, "wind": w_unit, "temp": t_unit}
-for key, value in current.items():
-    if value != defaults[key]:
+# The values come from st.session_state, where every widget keeps its current value under its key.
+defaults = {"mode": "Surf", "spot": list(SPOTS)[0], "wspot": list(WINDSURF_SPOTS)[0], "level": "Intermediate",
+            "height": "m", "wind": "kn", "temp": "°C"}
+for key, default in defaults.items():
+    value = st.session_state.get(key, default)   # a choice that was never drawn counts as the default
+    if value != default:
         st.query_params[key] = value
     elif key in st.query_params:
         del st.query_params[key]   # back to the default: remove it from the address again
+
+# Windsurf mode: the windsurf page draws everything and st.stop() ends the script here,
+# so the surf code below only runs in surf mode.
+if mode == "Windsurf":
+    wlat, wlon = WINDSURF_SPOTS[windsurf_spot]
+    show_windsurf(windsurf_spot, wlat, wlon, windsurf_level, weight, h_unit, w_unit, t_unit)
+    st.stop()
+
+# A dictionary with the four limits. Writing **rules in a function call hands over every entry
+# as a separate argument, like good_period=..., good_wind=..., okay_period=..., okay_wind=...
+rules = dict(good_period=good_period, good_wind=good_wind, okay_period=good_period - 2, okay_wind=good_wind + 5)
 
 h_factor = HEIGHT_FACTORS[h_unit]   # how many ft in one metre (or 1 for metres)
 w_factor = WIND_FACTORS[w_unit]     # how many km/h or mph in one knot (or 1 for knots)
@@ -294,8 +230,10 @@ rating, reason = rate_for_spot(current_period, current_wind, current_direction, 
 # Wind table with a compass label, one row every 3 hours
 table = wind_df.iloc[::3]
 table["compass"] = table["wind_direction_10m"].apply(degrees_to_compass)
-table["wind_speed_10m"] = (table["wind_speed_10m"] * w_factor).round(1)   # show the speed in the chosen unit
-table = table.rename(columns={"wind_speed_10m": f"Wind speed ({w_unit})", "wind_direction_10m": "Direction (°)"})
+table[["wind_speed_10m", "wind_gusts_10m"]] = (table[["wind_speed_10m", "wind_gusts_10m"]] * w_factor).round(1)   # speed and gusts in the chosen unit
+table = table[["wind_speed_10m", "wind_gusts_10m", "wind_direction_10m", "compass"]]   # the order of the columns
+table = table.rename(columns={"wind_speed_10m": f"Wind speed ({w_unit})", "wind_gusts_10m": f"Gusts ({w_unit})",
+                              "wind_direction_10m": "Direction (°)"})
 
 # Swell table with compass labels, one row every 3 hours
 swell_table = marine_df.iloc[::3][["wave_height", "swell_wave_height", "swell_wave_period"]].copy()
@@ -425,15 +363,19 @@ with view_spot:
     for column, (date, level, start, end) in zip(st.columns(len(week)), week):
         day_name = "Today" if date == now.date() else f"{date:%a %d}"
         window = "–" if level == "Poor" else f"{start:%H:%M}–{end:%H:%M}"   # no window to show if even the best hours are poor
+        # the core number for surfing: how big the waves are on that day (daylight hours)
+        low, high = day_range(marine_df["wave_height"] * h_factor, daylight_hours, now, date)
         with column:
             st.markdown(
                 f'<div style="background:{TILE_COLORS[level]}; color:white; padding:0.7rem 0.4rem; border-radius:10px; text-align:center; margin-bottom:0.6rem;">'
                 f'<div style="font-size:0.85rem; opacity:0.9;">{day_name}</div>'
                 f'<div style="font-size:1.2rem; font-weight:700;">{level}</div>'
                 f'<div style="font-size:0.8rem;">{window}</div>'
+                f'<div style="font-size:0.8rem; margin-top:0.2rem;">{range_text(low, high, h_unit)}</div>'
                 f'</div>',
                 unsafe_allow_html=True)
-    st.caption("Each tile shows the best daylight stretch of that day. Further ahead, forecasts get less reliable.")
+    st.caption("Each tile shows the best daylight stretch of that day and the wave height range over the daylight hours. "
+               "Further ahead, forecasts get less reliable.")
 
     # Secondary data hides in an expander until someone wants it
     with st.expander("More conditions: tide, wave power, wave direction"):

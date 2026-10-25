@@ -309,3 +309,22 @@ def wind_warning(wind_df, spot, end):
     if wind_df.loc[end, "wind_speed_10m"] - wind_df.loc[before_time, "wind_speed_10m"] >= 4:
         return f"The wind picks up around {end:%H:%M}, so the surface gets bumpier after that."
     return None
+
+# ---------- value range per day (for the "this week at a glance" tiles) ----------
+# The smallest and biggest value of a column (e.g. the wave height) over the daylight hours of one day.
+# For today only the hours still ahead count, like in best_per_day. Returns (low, high), or None if no hours are left.
+def day_range(values, daylight_hours, now, date):
+    times = daylight_hours.index[daylight_hours.index.date == date]
+    if date == now.date():
+        times = times[times >= now]
+    if len(times) == 0:
+        return None
+    day_values = values.loc[times]
+    return day_values.min(), day_values.max()
+
+# A range as text, e.g. 0.8 and 1.2 -> "0.8–1.2 m". If both ends look the same after rounding, only one number is shown.
+def range_text(low, high, unit, decimals=1):
+    low_text, high_text = f"{low:.{decimals}f}", f"{high:.{decimals}f}"
+    if low_text == high_text:
+        return f"{low_text} {unit}"
+    return f"{low_text}–{high_text} {unit}"

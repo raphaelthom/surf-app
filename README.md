@@ -12,6 +12,16 @@ For the selected spot it charts:
 
 **Live app:** https://surf-app-rt.streamlit.app/
 
+A switch at the top changes the app to **Windsurf** mode: the same kind of dashboard for flat-water and
+freestyle windsurfing (wind speed, gusts, direction, sail size), for the spot La Linière on Noirmoutier.
+
+## Files
+
+- `app.py`: the page (choices at the top, surf dashboard, compare view, guide)
+- `windsurf_view.py`: the windsurf dashboard, drawn when the mode switch is on "Windsurf"
+- `surf_logic.py`, `windsurf_logic.py`: the rating rules (no Streamlit in them, so they can be tested)
+- `forecast_data.py`: loads the data from Open-Meteo; `charts.py`: the Plotly charts
+
 No API key is needed. Forecasts are cached for one hour.
 
 ## Run it
