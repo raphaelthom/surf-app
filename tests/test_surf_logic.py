@@ -411,3 +411,36 @@ def test_day_range_is_none_when_no_hours_are_left():
 ])
 def test_range_text(low, high, decimals, expected):
     assert range_text(low, high, "m", decimals) == expected
+
+
+# ---------- rate_breaks ----------
+from surf_logic import rate_breaks
+
+# NW swell (315°) and a light east wind (90°): offshore at all four Taghazout breaks, and the swell fits them all
+NW_EAST = dict(swell_wave_period=12, wind_speed_10m=5, wind_direction=90, swell_direction=315, wave_height=1.5)
+
+def test_rate_breaks_returns_every_break_best_first():
+    result = rate_breaks("Taghazout", skill="Advanced", **NW_EAST)
+    assert sorted(name for name, _, _ in result) == ["Anchor Point", "Hash Point", "Killer Point", "Panorama"]
+    assert all(rating == "Good" for _, rating, _ in result)
+    # all Good, so the swell closest to the middle of the break's window comes first:
+    # Killer Point 0 degrees off, Hash Point 5, Panorama 5, Anchor Point 15
+    assert [name for name, _, _ in result] == ["Killer Point", "Hash Point", "Panorama", "Anchor Point"]
+
+def test_rate_breaks_a_break_that_is_too_demanding_is_poor_and_last():
+    result = rate_breaks("Taghazout", skill="Intermediate", **NW_EAST)
+    assert result[-1][0] == "Killer Point"
+    assert result[-1][1] == "Poor" and "advanced" in result[-1][2]
+
+def test_rate_breaks_beginners_only_get_the_gentle_breaks():
+    ratings = {name: rating for name, rating, _ in rate_breaks("Taghazout", skill="Beginner", **dict(NW_EAST, wave_height=0.8))}
+    assert ratings["Hash Point"] == "Good" and ratings["Panorama"] == "Good"
+    assert ratings["Anchor Point"] == "Poor" and ratings["Killer Point"] == "Poor"
+
+def test_rate_breaks_swell_from_the_wrong_direction_lowers_every_break():
+    from_south = dict(NW_EAST, swell_direction=180)
+    assert all(rating != "Good" for _, rating, _ in rate_breaks("Taghazout", skill="Advanced", **from_south))
+
+def test_rate_for_spot_without_the_info_argument_still_uses_the_spot_rules():
+    # the new info argument is optional: without it the rules of the spot are used, like before
+    assert rate_for_spot(12, 5, 90, 315, 1.5, "Taghazout")[0] == "Good"

@@ -151,8 +151,8 @@ def one_level_down(rating):
 #   waves too small for your level: one level worse; too big: Poor
 # Returns (rating, reason) just like rate_conditions.
 def rate_for_spot(swell_wave_period, wind_speed_10m, wind_direction, swell_direction, wave_height,
-                  spot, skill="Intermediate", wind_unit="kn", **rules):
-    info = SPOT_INFO[spot]
+                  spot, skill="Intermediate", wind_unit="kn", info=None, **rules):
+    info = info or SPOT_INFO[spot]   # a single break can pass its own rules (see rate_breaks), otherwise the spot's rules count
     kind = wind_type(wind_direction, info["faces"])
 
     wind = wind_speed_10m
@@ -328,3 +328,37 @@ def range_text(low, high, unit, decimals=1):
     if low_text == high_text:
         return f"{low_text} {unit}"
     return f"{low_text}–{high_text} {unit}"
+
+# ---------- which break fits best? ----------
+# Some spots are really several breaks that share the same weather data (it covers an area of several km),
+# but each break likes a different swell and wind direction. Same fields as SPOT_INFO, plus "min_level":
+# the lowest surf level the break is suitable for. The values come from public surf guides (mondo.surf,
+# surfnerd, thesurfatlas): the guides name the best swell and the offshore wind, and "faces" is the opposite
+# of the offshore wind. For Anchor Point they disagree (NE or E to SE), so 270 is a middle value.
+# Panorama: no guide names its offshore wind, so its 250 is my own guess.
+SPOT_BREAKS = {
+    "Taghazout": {
+        "Anchor Point": {"faces": 270, "swell_window": (280, 20), "min_level": "Intermediate"},
+        "Killer Point": {"faces": 260, "swell_window": (270, 360), "min_level": "Advanced"},
+        "Hash Point": {"faces": 230, "swell_window": (290, 350), "min_level": "Beginner"},
+        "Panorama": {"faces": 250, "swell_window": (270, 350), "min_level": "Beginner"},
+    },
+}
+
+# Rates every break of a spot for the given conditions and returns a list of (break, rating, reason),
+# the best fit first. Breaks that are too demanding for your level are Poor. Breaks with the same rating
+# are sorted by how close the swell is to the middle of the break's swell window.
+def rate_breaks(spot, swell_wave_period, wind_speed_10m, wind_direction, swell_direction, wave_height,
+                skill="Intermediate", wind_unit="kn", **rules):
+    levels = list(SKILL_LEVELS)   # Beginner, Intermediate, Advanced: a lower position is a lower level
+    results = []
+    for name, info in SPOT_BREAKS[spot].items():
+        rating, reason = rate_for_spot(swell_wave_period, wind_speed_10m, wind_direction, swell_direction, wave_height,
+                                       spot, skill, wind_unit, info=info, **rules)
+        if levels.index(skill) < levels.index(info["min_level"]):
+            rating, reason = "Poor", f"needs {info['min_level'].lower()} level or better"
+        low, high = info["swell_window"]
+        middle = (low + ((high - low) % 360) / 2) % 360   # the middle of the window, also for windows that cross north
+        results.append((name, rating, reason, angle_between(swell_direction, middle)))
+    results.sort(key=lambda r: (-LEVELS.index(r[1]), r[3]))   # best rating first, then the closest to the middle
+    return [(name, rating, reason) for name, rating, reason, _ in results]

@@ -10,7 +10,7 @@ from charts import make_line_chart, make_wind_chart, make_quality_chart
 # The surf logic (compass labels, rating, best time, next tide) lives in surf_logic.py
 from surf_logic import (degrees_to_compass, rate_for_spot, rate_hours, find_best_time, best_per_day, next_turning_point, make_sun_times, daylight_only,
                         HEIGHT_FACTORS, WIND_FACTORS, convert_temp, wind_text, week_score, best_day, wetsuit_for, swell_trend, wind_warning,
-                        wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS, day_range, range_text)
+                        wind_type, swell_in_window, wave_power, SPOT_INFO, SKILL_LEVELS, day_range, range_text, SPOT_BREAKS, rate_breaks)
 
 # The windsurf page: everything it draws is in windsurf_view.py (its rating rules are in windsurf_logic.py)
 from windsurf_view import show_windsurf
@@ -132,8 +132,20 @@ SPOT_NOTES = {
                "the island famous for Cloud 9 and its reef breaks facing the Pacific.",
     "Lombok": "The forecast point lies off the south coast of Lombok, near Kuta and Mawi. "
               "The south coast catches Indian Ocean swell and has beach and reef breaks.",
-    "Taghazout": "The forecast point lies off Taghazout on Morocco's Atlantic coast, "
-                 "a stretch known for its point breaks such as Anchor Point and Killer Point.",
+    # The text is shown with st.write, so the list in it is drawn as bullet points
+    "Taghazout": "The forecast point lies off Taghazout on Morocco's Atlantic coast, a stretch of right-hand point breaks. "
+                 "The weather data covers an area of several kilometres, so it is the same for all the breaks below. "
+                 "What differs is which swell and wind each one likes:\n"
+                 "- **Anchor Point:** a long right over sand and rock. Best on mid-sized to big NW swell with east wind, "
+                 "mostly low to mid tide. Intermediate and advanced.\n"
+                 "- **Killer Point:** a heavy, hollow right below a cliff, a bit north-west of Anchor Point. Likes W to NW swell "
+                 "and east wind, most tides. Experienced surfers, often crowded.\n"
+                 "- **Hash Point:** a mellow, fast right in the middle of the village, partly sheltered by Cap Ghir. Likes NW swell "
+                 "and NE wind, all tides. All levels.\n"
+                 "- **Panorama:** rights over sand and reef south of the village. Works from small waves up to mid-sized NW swell, "
+                 "most tides. Friendly for beginners and intermediates.\n\n"
+                 "The section \"Which break fits best?\" on the forecast page ranks them for the best time of the day. "
+                 "These notes come from public surf guides, so check them with a local surf school.",
 }
 
 # The sidebar is a panel on the left. The sliders let you set what "Good" means to you;
@@ -376,6 +388,21 @@ with view_spot:
                 unsafe_allow_html=True)
     st.caption("Each tile shows the best daylight stretch of that day and the wave height range over the daylight hours. "
                "Further ahead, forecasts get less reliable.")
+
+    # Spots with several breaks (Taghazout): which break fits the conditions best? The weather data is the same
+    # for all of them, but each break likes a different swell and wind direction (see SPOT_BREAKS in surf_logic.py).
+    if spot_name in SPOT_BREAKS:
+        # look at the start of the best window, or at the current hour if there is no good window
+        check_time = best_start if best_level != "Poor" else now
+        when = f"{day_label} at {check_time:%H:%M}" if best_level != "Poor" else "right now"
+        st.subheader("Which break fits best?")
+        for break_name, break_rating, break_reason in rate_breaks(
+                spot_name, marine_df.loc[check_time, "swell_wave_period"], wind_df.loc[check_time, "wind_speed_10m"],
+                wind_df.loc[check_time, "wind_direction_10m"], marine_df.loc[check_time, "swell_wave_direction"],
+                marine_df.loc[check_time, "wave_height"], skill, wind_unit=w_unit, **rules):
+            st.markdown(f"{RATING_ICONS[break_rating]} **{break_name}**: {break_rating}. {break_reason[0].upper() + break_reason[1:]}")
+        st.caption(f"For {when}. The weather data is the same for all breaks, so this only compares which swell and wind "
+                   "direction each break likes. It is a guide, not a promise. Details in the \"About\" section below.")
 
     # Secondary data hides in an expander until someone wants it
     with st.expander("More conditions: tide, wave power, wave direction"):
