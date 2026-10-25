@@ -144,7 +144,7 @@ SPOT_NOTES = {
                  "and NE wind, all tides. All levels.\n"
                  "- **Panorama:** rights over sand and reef south of the village. Works from small waves up to mid-sized NW swell, "
                  "most tides. Friendly for beginners and intermediates.\n\n"
-                 "The section \"Which break fits best?\" on the forecast page ranks them for the best time of the day. "
+                 "The \"Best break\" line in the top card (hover over it, or tap it on a phone) ranks them for the best time of the day. "
                  "These notes come from public surf guides, so check them with a local surf school.",
 }
 
@@ -312,15 +312,52 @@ with view_spot:
         if warning:
             warning_line = f'<div style="font-size:0.95rem; margin-top:0.5rem;">⚠️ {warning}</div>'
 
+    # Spots with several breaks (Taghazout): a line in the card names the best break, and a box that opens on hover
+    # (or on a tap, on a phone) lists all of them. The weather data is the same for every break, but each break
+    # likes a different swell and wind direction (see SPOT_BREAKS in surf_logic.py).
+    break_line = ""
+    break_css = ""   # the look of the box, only needed for spots with breaks
+    if spot_name in SPOT_BREAKS:
+        # look at the start of the best window, or at the current hour if there is no good window
+        check_time = best_start if best_level != "Poor" else now
+        when = f"{day_label} at {check_time:%H:%M}" if best_level != "Poor" else "right now"
+        ranking = rate_breaks(
+            spot_name, marine_df.loc[check_time, "swell_wave_period"], wind_df.loc[check_time, "wind_speed_10m"],
+            wind_df.loc[check_time, "wind_direction_10m"], marine_df.loc[check_time, "swell_wave_direction"],
+            marine_df.loc[check_time, "wave_height"], skill, wind_unit=w_unit, **rules)
+        top_name, top_rating, _ = ranking[0]   # the list is sorted, the best break is first
+        # one row per break for the box (the dot is the rating, like in the compare table)
+        tip_rows = "".join(
+            f'<div style="margin-bottom:0.4rem;">{RATING_ICONS[r]} <b>{n}</b>: {r}. {why[0].upper() + why[1:]}</div>'
+            for n, r, why in ranking)
+        best_text = f"Best break: <b>{top_name}</b>" if top_rating != "Poor" else "No break fits well"
+        break_line = (
+            f'<div class="break-info" tabindex="0">⭐ {best_text} ⓘ'   # tabindex="0" lets a tap on a phone open the box
+            f'<div class="break-tip">{tip_rows}'
+            f'<div style="font-size:0.8rem; opacity:0.75; margin-top:0.5rem;">For {when}. The weather data is the same for all '
+            f'breaks, so this only compares which swell and wind direction each break likes. A guide, not a promise.</div>'
+            f'</div></div>')
+        # The look of the box: hidden until you hover over the line (or focus it by tapping).
+        # It is part of the card's markdown, so it doesn't add an extra element (and gap) above the card.
+        break_css = """<style>
+.break-info { position: relative; display: inline-block; margin-top: 0.6rem; cursor: help; outline: none; font-size: 1.05rem; }
+.break-tip { display: none; position: absolute; left: 0; top: 100%; z-index: 50; width: min(32rem, 80vw); margin-top: 0.4rem;
+             background: #1f2430; color: white; padding: 0.8rem 1rem; border-radius: 10px; font-size: 0.9rem; font-weight: 400;
+             box-shadow: 0 6px 20px rgba(0,0,0,0.35); }
+.break-info:hover .break-tip, .break-info:focus .break-tip { display: block; }
+</style>"""
+
     # The verdict card: one big coloured box with the answer to "should I go?".
     # st.markdown can draw plain HTML when unsafe_allow_html=True (safe here: the text is made by our own code).
     st.markdown(
+        f'{break_css}'
         f'<div style="background:{TILE_COLORS[rating]}; color:white; padding:1.2rem 1.6rem; border-radius:12px; margin:0.5rem 0 1rem 0;">'
         f'<div style="font-size:0.9rem; opacity:0.9;">Right now at {spot_name}</div>'
         f'<div style="font-size:2.4rem; font-weight:700; line-height:1.2;">{VERDICTS[rating]}</div>'
         f'<div style="font-size:1rem; margin-top:0.3rem;">{reason[0].upper() + reason[1:]}</div>'
         f'<div style="font-size:1.1rem; font-weight:600; margin-top:0.6rem;">{best_line}</div>'
         f'{warning_line}'
+        f'{break_line}'
         f'</div>',
         unsafe_allow_html=True)
 
@@ -388,21 +425,6 @@ with view_spot:
                 unsafe_allow_html=True)
     st.caption("Each tile shows the best daylight stretch of that day and the wave height range over the daylight hours. "
                "Further ahead, forecasts get less reliable.")
-
-    # Spots with several breaks (Taghazout): which break fits the conditions best? The weather data is the same
-    # for all of them, but each break likes a different swell and wind direction (see SPOT_BREAKS in surf_logic.py).
-    if spot_name in SPOT_BREAKS:
-        # look at the start of the best window, or at the current hour if there is no good window
-        check_time = best_start if best_level != "Poor" else now
-        when = f"{day_label} at {check_time:%H:%M}" if best_level != "Poor" else "right now"
-        st.subheader("Which break fits best?")
-        for break_name, break_rating, break_reason in rate_breaks(
-                spot_name, marine_df.loc[check_time, "swell_wave_period"], wind_df.loc[check_time, "wind_speed_10m"],
-                wind_df.loc[check_time, "wind_direction_10m"], marine_df.loc[check_time, "swell_wave_direction"],
-                marine_df.loc[check_time, "wave_height"], skill, wind_unit=w_unit, **rules):
-            st.markdown(f"{RATING_ICONS[break_rating]} **{break_name}**: {break_rating}. {break_reason[0].upper() + break_reason[1:]}")
-        st.caption(f"For {when}. The weather data is the same for all breaks, so this only compares which swell and wind "
-                   "direction each break likes. It is a guide, not a promise. Details in the \"About\" section below.")
 
     # Secondary data hides in an expander until someone wants it
     with st.expander("More conditions: tide, wave power, wave direction"):
