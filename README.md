@@ -1,5 +1,7 @@
 # 🌊 Surf & Windsurf Forecast
 
+[![Tests](https://github.com/raphaelthom/surf-app/actions/workflows/tests.yml/badge.svg)](https://github.com/raphaelthom/surf-app/actions/workflows/tests.yml)
+
 A web app that turns raw weather and ocean data into one simple answer: **should I go out today, and when?**
 It rates every hour of the next 7 days for surfing at five spots (Lisbon, San Diego, Siargao, Lombok, Taghazout)
 and for windsurfing at La Linière on Noirmoutier, adjusted to your skill level.
@@ -100,6 +102,10 @@ Run the tests:
 pip install -r requirements-dev.txt
 python -m pytest
 ```
+
+## License
+
+[MIT](LICENSE)
 
 ## Credits
 
